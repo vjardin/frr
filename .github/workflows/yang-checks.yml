@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         compiler: [ gcc ]
-        libyang-versions: [ v2.1.128 ]
+        libyang-versions: [ v2.1.128, v2.1.148 ]
     steps:
       - name: add missing packages per building-frr-for-ubuntu2204
         uses: ConorMacBride/install-package@v1
