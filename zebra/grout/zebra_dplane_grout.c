@@ -45,8 +45,11 @@ static int grout_notif_subscribe(struct gr_api_client **pgr_client, uint32_t *ev
 	unsigned int i;
 
 	*pgr_client = gr_api_client_connect(GR_DEFAULT_SOCK_PATH);
-	if (*pgr_client == NULL)
+	if (*pgr_client == NULL) {
+		gr_log_err("connect failed on grout sock %s error: %s",
+			   GR_DEFAULT_SOCK_PATH, strerror(errno));
 		return -1;
+	}
 
 	for (i = 0; i < nb_ev_types; i++) {
 		req.ev_type = ev_types[i];
@@ -150,8 +153,9 @@ retry:
 
 		grout_ctx.client = gr_api_client_connect(GR_DEFAULT_SOCK_PATH);
 		if (!grout_ctx.client) {
-			gr_log_debug("connect failed on grout sock for '%s' request",
-				     gr_req_type_to_str(req_type));
+			gr_log_debug("connect failed on grout sock %s for '%s' request: %s",
+				     GR_DEFAULT_SOCK_PATH, gr_req_type_to_str(req_type),
+				     strerror(errno));
 			return -1;
 		}
 
