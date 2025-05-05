@@ -276,5 +276,5 @@ zebra_zebra_dplane_grout_la_SOURCES = \
 	zebra/grout/if_grout.c \
 	# end
 zebra_zebra_dplane_grout_la_LDFLAGS = -avoid-version -module -shared -export-dynamic $(GROUT_LIBS) -v
-zebra_zebra_dplane_grout_la_CFLAGS = $(GROUT_CFLAGS)
+zebra_zebra_dplane_grout_la_CFLAGS = $(AC_CFLAGS) $(GROUT_CFLAGS) -std=gnu11
 zebra_zebra_dplane_grout_la_LIBADD  = $(GROUT_LIBS)
