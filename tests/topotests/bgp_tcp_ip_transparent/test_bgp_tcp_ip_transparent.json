@@ -1,0 +1,18 @@
+{
+    "routers": {
+        "r1": {
+            "links": {
+                "lo": { "type": "loopback" },
+                "r2": { }
+            },
+            "bgp": { "local_as": "20101" }
+        },
+        "r2": {
+            "links": {
+                "lo": { "type": "loopback" },
+                "r1": { }
+            },
+            "bgp": { "local_as": "20102" }
+	}
+    }
+}
