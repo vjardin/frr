@@ -783,10 +783,17 @@ static int netlink_recv_msg(struct nlsock *nl, struct msghdr *msg)
 	} while (status == -1 && errno == EINTR);
 
 	if (status == -1) {
+		char nlname[64];
+
 		if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EMSGSIZE)
 			return 0;
+		/*
+		 * Use safe name lookup for logging - the nlsock may have been
+		 * freed by another thread during namespace deletion.
+		 */
+		kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
 		flog_err(EC_ZEBRA_RECVMSG_OVERRUN, "%s recvmsg overrun: %s",
-			 nl->name, safe_strerror(errno));
+			 nlname, safe_strerror(errno));
 		/*
 		 * In this case we are screwed. There is no good way to recover
 		 * zebra at this point.
@@ -795,13 +802,19 @@ static int netlink_recv_msg(struct nlsock *nl, struct msghdr *msg)
 	}
 
 	if (status == 0) {
-		flog_err_sys(EC_LIB_SOCKET, "%s EOF", nl->name);
+		char nlname[64];
+
+		kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
+		flog_err_sys(EC_LIB_SOCKET, "%s EOF", nlname);
 		return -1;
 	}
 
 	if (msg->msg_namelen != sizeof(struct sockaddr_nl)) {
+		char nlname[64];
+
+		kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
 		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
-			 "%s sender address length error: length %d", nl->name,
+			 "%s sender address length error: length %d", nlname,
 			 msg->msg_namelen);
 		return -1;
 	}
@@ -830,10 +843,17 @@ static int netlink_parse_error(const struct nlsock *nl, struct nlmsghdr *h,
 	struct nlmsgerr *err = (struct nlmsgerr *)NLMSG_DATA(h);
 	int errnum = err->error;
 	int msg_type = err->msg.nlmsg_type;
+	char nlname[64];
+
+	/*
+	 * Use safe name lookup - the nlsock may be freed by the main thread
+	 * while the dplane thread is still using it.
+	 */
+	kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
 
 	if (h->nlmsg_len < NLMSG_LENGTH(sizeof(struct nlmsgerr))) {
 		flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
-			 "%s error: message truncated", nl->name);
+			 "%s error: message truncated", nlname);
 		return -1;
 	}
 
@@ -848,7 +868,7 @@ static int netlink_parse_error(const struct nlsock *nl, struct nlmsghdr *h,
 	if (err->error == 0) {
 		if (IS_ZEBRA_DEBUG_KERNEL) {
 			zlog_debug("%s: %s ACK: type=%s(%u), seq=%u, pid=%u",
-				   __func__, nl->name,
+				   __func__, nlname,
 				   nl_msg_type_to_str(err->msg.nlmsg_type),
 				   err->msg.nlmsg_type, err->msg.nlmsg_seq,
 				   err->msg.nlmsg_pid);
@@ -871,7 +891,7 @@ static int netlink_parse_error(const struct nlsock *nl, struct nlmsghdr *h,
 	      (-errnum == EOPNOTSUPP)))) {
 		if (IS_ZEBRA_DEBUG_KERNEL)
 			zlog_debug("%s: error: %s type=%s(%u), seq=%u, pid=%u",
-				   nl->name, safe_strerror(-errnum),
+				   nlname, safe_strerror(-errnum),
 				   nl_msg_type_to_str(msg_type), msg_type,
 				   err->msg.nlmsg_seq, err->msg.nlmsg_pid);
 		return 0;
@@ -891,7 +911,7 @@ static int netlink_parse_error(const struct nlsock *nl, struct nlmsghdr *h,
 		 */
 		if (IS_ZEBRA_DEBUG_KERNEL)
 			zlog_debug("%s error: %s, type=%s(%u), seq=%u, pid=%u",
-				   nl->name, safe_strerror(-errnum),
+				   nlname, safe_strerror(-errnum),
 				   nl_msg_type_to_str(msg_type), msg_type,
 				   err->msg.nlmsg_seq, err->msg.nlmsg_pid);
 	} else {
@@ -899,7 +919,7 @@ static int netlink_parse_error(const struct nlsock *nl, struct nlmsghdr *h,
 		    !startup)
 			flog_err(EC_ZEBRA_UNEXPECTED_MESSAGE,
 				 "%s error: %s, type=%s(%u), seq=%u, pid=%u",
-				 nl->name, safe_strerror(-errnum),
+				 nlname, safe_strerror(-errnum),
 				 nl_msg_type_to_str(msg_type), msg_type,
 				 err->msg.nlmsg_seq, err->msg.nlmsg_pid);
 	}
@@ -928,6 +948,14 @@ int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 	int ret = 0;
 	int error;
 	int read_in = 0;
+	char nlname[64];
+
+	/*
+	 * Get a safe copy of the name for logging. The nlsock (embedded in
+	 * zebra_ns) can be freed by the main thread while the dplane thread
+	 * is still using it.
+	 */
+	kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
 
 	while (1) {
 		struct sockaddr_nl snl;
@@ -981,7 +1009,7 @@ int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 			if (IS_ZEBRA_DEBUG_KERNEL)
 				zlog_debug(
 					"%s: %s type %s(%u), len=%d, seq=%u, pid=%u",
-					__func__, nl->name,
+					__func__, nlname,
 					nl_msg_type_to_str(h->nlmsg_type),
 					h->nlmsg_type, h->nlmsg_len,
 					h->nlmsg_seq, h->nlmsg_pid);
@@ -998,8 +1026,7 @@ int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 
 			error = (*filter)(h, zns->ns_id, startup);
 			if (error < 0) {
-				zlog_debug("%s filter function error",
-					   nl->name);
+				zlog_debug("%s filter function error", nlname);
 				ret = error;
 			}
 		}
@@ -1007,12 +1034,12 @@ int netlink_parse_info(int (*filter)(struct nlmsghdr *, ns_id_t, int),
 		/* After error care. */
 		if (msg.msg_flags & MSG_TRUNC) {
 			flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
-				 "%s error: message truncated", nl->name);
+				 "%s error: message truncated", nlname);
 			continue;
 		}
 		if (status) {
 			flog_err(EC_ZEBRA_NETLINK_LENGTH_ERROR,
-				 "%s error: data remnant size %d", nl->name,
+				 "%s error: data remnant size %d", nlname,
 				 status);
 			return -1;
 		}
@@ -1323,10 +1350,28 @@ static void nl_batch_send(struct nl_batch *bth)
 	if (bth->curlen != 0 && bth->zns != NULL) {
 		struct nlsock *nl =
 			kernel_netlink_nlsock_lookup(bth->zns->sock);
+		char nlname[64];
+
+		/*
+		 * nl can be NULL if the socket has been removed during
+		 * namespace shutdown. In this case, mark all contexts
+		 * as failed.
+		 */
+		if (nl == NULL) {
+			err = true;
+			goto done;
+		}
+
+		/*
+		 * Get a safe copy of the name for logging. The nlsock
+		 * (embedded in zebra_ns) can be freed by the main thread
+		 * while we're processing.
+		 */
+		kernel_netlink_nlsock_get_name(nl->sock, nlname, sizeof(nlname));
 
 		if (IS_ZEBRA_DEBUG_KERNEL)
 			zlog_debug("%s: %s, batch size=%zu, msg cnt=%zu",
-				   __func__, nl->name, bth->curlen,
+				   __func__, nlname, bth->curlen,
 				   bth->msgcnt);
 
 		if (netlink_send_msg(nl, bth->buf, bth->curlen) == -1)
@@ -1337,6 +1382,8 @@ static void nl_batch_send(struct nl_batch *bth)
 				err = true;
 		}
 	}
+
+done:
 
 	/* Move remaining contexts to the outbound queue. */
 	while (true) {
@@ -1565,6 +1612,36 @@ struct nlsock *kernel_netlink_nlsock_lookup(int sock)
 	NLSOCK_UNLOCK();
 
 	return retval;
+}
+
+/*
+ * Safely copy the nlsock name for logging purposes.
+ * This is needed because the nlsock (embedded in zebra_ns) can be freed
+ * by the main thread while the dplane thread is still using it.
+ * Returns true if the name was copied, false if the socket was not found.
+ */
+bool kernel_netlink_nlsock_get_name(int sock, char *buf, size_t buflen)
+{
+	struct nlsock lookup, *nl;
+	bool found = false;
+
+	if (buflen == 0)
+		return false;
+
+	lookup.sock = sock;
+
+	NLSOCK_LOCK();
+	nl = hash_lookup(nlsock_hash, &lookup);
+	if (nl) {
+		strlcpy(buf, nl->name, buflen);
+		found = true;
+	}
+	NLSOCK_UNLOCK();
+
+	if (!found)
+		strlcpy(buf, "netlink(deleted)", buflen);
+
+	return found;
 }
 
 /* Insert nlsock entry into hash */
