@@ -51,7 +51,17 @@ extern struct zebra_privs_t zserv_privs;
  * 0).  We follow this practice without questioning it, but it is a
  * bug if frr calls ROUNDUP with 0.
  */
+#ifdef __APPLE__
+/*
+ * macOS aligns to 4 bytes (Apple's own route/netstat use sizeof(uint32_t)),
+ * even on 64-bit where long is 8.  Using long there makes every sockaddr that
+ * isn't a multiple of 8 bytes long (sockaddr_in6 is 28) misplace the
+ * following ones, and results in garbage sa_len values.
+ */
+#define ROUNDUP_TYPE uint32_t
+#else
 #define ROUNDUP_TYPE long
+#endif
 
 /*
  * Because of these varying conventions, the only sane approach is for
@@ -970,6 +980,15 @@ static int rtm_read_mesg(struct rt_msghdr *rtm, union sockunion *dest,
 			break;
 		case RTA_IFP:
 			pnt += rta_getsdlname(pnt, ifname, ifnlen);
+			break;
+
+		case RTA_IFA:
+			/*
+			 * The address of the interface the route uses.  macOS
+			 * includes it in RTM_GET messages (e.g. from the sysctl
+			 * routing table dump), we don't need it.
+			 */
+			pnt += rta_get(pnt, NULL, 0);
 			break;
 
 		default:
