@@ -214,6 +214,23 @@ int frr_pthread_non_controlled_startup(pthread_t thread, const char *name,
 
 void frr_pthread_non_controlled_shutdown(pthread_t thread);
 
+/*
+ * Condition variable whose timed-wait deadline is an absolute CLOCK_MONOTONIC
+ * time. The two calls are a pair: wait only on a condvar initialized here,
+ * and pass only a CLOCK_MONOTONIC abstime.
+ *
+ * Where pthread_condattr_setclock() exists, init selects CLOCK_MONOTONIC.
+ * macOS has no such call and pthread_cond_timedwait() is always
+ * CLOCK_REALTIME, so the timed-wait translates the deadline.
+ *
+ * Returns 0, or a positive errno.  On failure the condvar is not
+ * initialized: the monotonic clock could not be selected, and a
+ * realtime condvar would make the deadline compare against the wrong clock.
+ */
+int frr_pthread_cond_init(pthread_cond_t *cond);
+int frr_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
+			       const struct timespec *abstime);
+
 /* mutex auto-lock/unlock */
 
 /* variant 1:
