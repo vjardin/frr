@@ -17628,8 +17628,12 @@ struct bgp_table_stats {
 	struct bgp_table *table;
 	unsigned long long counts[BGP_STATS_MAX];
 
+	/* MAX() is a statement expression, not usable for an array size
+	 * outside of a function (clang rejects it)
+	 */
 	unsigned long long
-		prefix_len_count[MAX(EVPN_ROUTE_PREFIXLEN, IPV6_MAX_BITLEN) +
+		prefix_len_count[(EVPN_ROUTE_PREFIXLEN > IPV6_MAX_BITLEN ? EVPN_ROUTE_PREFIXLEN
+									 : IPV6_MAX_BITLEN) +
 				 1];
 
 	double total_space;
