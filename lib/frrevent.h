@@ -107,9 +107,10 @@ struct cpu_event_history {
 	void (*func)(struct event *e);
 
 	/* fields between the pair of these two are nulled on "clear event cpu" */
-	char _clear_begin[0];
-
-	atomic_size_t total_cpu_warn;
+	union {
+		char _clear_begin[1];
+		atomic_size_t total_cpu_warn;
+	};
 	atomic_size_t total_wall_warn;
 	atomic_size_t total_starv_warn;
 	atomic_size_t total_calls;
@@ -121,9 +122,10 @@ struct cpu_event_history {
 	atomic_uint_fast32_t types;
 
 	/* end of cleared region */
-	char _clear_end[0];
-
-	const char *funcname;
+	union {
+		char _clear_end[1];
+		const char *funcname;
+	};
 };
 
 /* Struct timeval's tv_usec one second value.  */
@@ -284,6 +286,10 @@ void frr_event_loop_set_handle_sigs(struct event_loop *loop, bool handle_p);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef _MSC_VER
+#include "lib/win32/msvc/frrevent.h"
 #endif
 
 #endif /* _ZEBRA_THREAD_H */

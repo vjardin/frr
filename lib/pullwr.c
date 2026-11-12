@@ -72,8 +72,8 @@ void pullwr_del(struct pullwr *pullwr)
 void pullwr_cfg(struct pullwr *pullwr, int64_t max_spin_usec,
 		size_t write_threshold)
 {
-	pullwr->maxspin = max_spin_usec ?: PULLWR_MAXSPIN;
-	pullwr->thresh = write_threshold ?: PULLWR_THRESH;
+	pullwr->maxspin = max_spin_usec ? max_spin_usec : PULLWR_MAXSPIN;
+	pullwr->thresh = write_threshold ? write_threshold : PULLWR_THRESH;
 }
 
 void pullwr_bump(struct pullwr *pullwr)

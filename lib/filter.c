@@ -427,7 +427,7 @@ enum filter_type access_list_apply(struct access_list *access,
 	return FILTER_DENY;
 }
 
-enum filter_type access_list_apply_sadr(struct access_list *access, union prefixconstptr src,
+enum filter_type (access_list_apply_sadr)(struct access_list *access, union prefixconstptr src,
 					union prefixconstptr dst, struct filter **match)
 {
 	struct filter *filter;

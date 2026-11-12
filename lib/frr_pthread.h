@@ -268,4 +268,8 @@ static inline void _frr_mtx_unlock(pthread_mutex_t **mutex)
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/frr_pthread.h"
+#endif
+
 #endif /* _FRR_PTHREAD_H */

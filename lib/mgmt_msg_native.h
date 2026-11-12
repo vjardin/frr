@@ -1039,4 +1039,8 @@ extern const char **_mgmt_msg_native_strings_decode(const void *sdata, int sdlen
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/mgmt_msg_native.h"
+#endif
+
 #endif /* _FRR_MGMT_MSG_NATIVE_H_ */

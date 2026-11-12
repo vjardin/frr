@@ -198,7 +198,7 @@ void printfrr_ext_reg(const struct printfrr_ext *ext);
 		.match = matchs,                                               \
 		.print_ptr = print_fn,                                         \
 	};                                                                     \
-	static void _printreg_##print_fn(void) __attribute__((constructor));   \
+	FRR_CONSTRUCTOR_DEFAULT(_printreg_##print_fn);                         \
 	static void _printreg_##print_fn(void)                                 \
 	{                                                                      \
 		printfrr_ext_reg(&_printext_##print_fn);                       \
@@ -212,7 +212,7 @@ void printfrr_ext_reg(const struct printfrr_ext *ext);
 		.match = matchs,                                               \
 		.print_int = print_fn,                                         \
 	};                                                                     \
-	static void _printreg_##print_fn(void) __attribute__((constructor));   \
+	FRR_CONSTRUCTOR_DEFAULT(_printreg_##print_fn);                         \
 	static void _printreg_##print_fn(void)                                 \
 	{                                                                      \
 		printfrr_ext_reg(&_printext_##print_fn);                       \
@@ -302,6 +302,9 @@ struct va_format {
 	/* end */
 #endif
 
+#if defined(_MSC_VER)
+#define FMT_NSTD(expr) (expr)
+#else
 #define FMT_NSTD(expr)                                                         \
 	({                                                                     \
 		FMT_NSTD_BEGIN                                                 \
@@ -311,6 +314,7 @@ struct va_format {
 		_v;                                                            \
 	})                                                                     \
 	/* end */
+#endif
 
 #ifdef __cplusplus
 }

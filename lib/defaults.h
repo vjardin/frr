@@ -82,8 +82,7 @@ struct frr_default {
 		.save_##typname = &SAVE_##varname,                             \
 		.entries = { __VA_ARGS__ },                                    \
 	};                                                                     \
-	static void _dfltinit_##varname(void)                                  \
-		__attribute__((_CONSTRUCTOR(1000)));                           \
+	FRR_CONSTRUCTOR(1000, _dfltinit_##varname);                            \
 	static void _dfltinit_##varname(void)                                  \
 	{                                                                      \
 		frr_default_add(&_dflt_##varname);                             \

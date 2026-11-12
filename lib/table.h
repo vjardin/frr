@@ -237,6 +237,10 @@ extern struct route_node *route_table_get_next(struct route_table *table,
 extern int route_table_prefix_iter_cmp(const struct prefix *p1,
 				       const struct prefix *p2);
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/table.h"
+#endif
+
 /*
  * Iterator functions.
  */

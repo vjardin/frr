@@ -323,10 +323,11 @@ static void cpu_record_print(struct vty *vty, uint8_t filter)
 	frr_with_mutex (&masters_mtx) {
 		for (ALL_LIST_ELEMENTS_RO(masters, ln, m)) {
 			const char *name = m->name ? m->name : "main";
-			char underline[strlen(name) + 1];
+			size_t underline_len = strlen(name) + 1;
+			FRR_VLA(char, underline, underline_len);
 
-			memset(underline, '-', sizeof(underline));
-			underline[sizeof(underline) - 1] = '\0';
+			memset(underline, '-', underline_len);
+			underline[underline_len - 1] = '\0';
 
 			vty_out(vty, "\n");
 			vty_out(vty, "Showing statistics for pthread %s\n",
@@ -559,12 +560,13 @@ static void show_event_poll_helper(struct vty *vty, struct event_loop *m)
 static void show_event_poll_helper(struct vty *vty, struct event_loop *m)
 {
 	const char *name = m->name ? m->name : "main";
-	char underline[strlen(name) + 1];
+	size_t underline_len = strlen(name) + 1;
+	FRR_VLA(char, underline, underline_len);
 	struct event *event;
 	uint32_t i;
 
-	memset(underline, '-', sizeof(underline));
-	underline[sizeof(underline) - 1] = '\0';
+	memset(underline, '-', underline_len);
+	underline[underline_len - 1] = '\0';
 
 	vty_out(vty, "\nShowing poll FD's for %s\n", name);
 	vty_out(vty, "----------------------%s\n", underline);
@@ -655,11 +657,12 @@ DEFUN (clear_event_cpu,
 static void show_event_timers_helper(struct vty *vty, struct event_loop *m)
 {
 	const char *name = m->name ? m->name : "main";
-	char underline[strlen(name) + 1];
+	size_t underline_len = strlen(name) + 1;
+	FRR_VLA(char, underline, underline_len);
 	struct event *event;
 
-	memset(underline, '-', sizeof(underline));
-	underline[sizeof(underline) - 1] = '\0';
+	memset(underline, '-', underline_len);
+	underline[underline_len - 1] = '\0';
 
 	vty_out(vty, "\nShowing timers for %s\n", name);
 	vty_out(vty, "-------------------%s\n", underline);
@@ -1428,7 +1431,7 @@ static void _event_add_timer_timeval(const struct xref_eventsched *xref,
 				     struct timeval *time_relative,
 				     struct event **t_ptr)
 {
-	struct event *event;
+	struct event *event = NULL;
 	struct timeval t;
 
 	assert(m != NULL);
@@ -1446,7 +1449,7 @@ static void _event_add_timer_timeval(const struct xref_eventsched *xref,
 	frr_with_mutex (&m->mtx) {
 		if (t_ptr && *t_ptr)
 			/* thread is already scheduled; don't reschedule */
-			return;
+			break;
 
 		event = event_get(m, EVENT_TIMER, func, arg, xref);
 		/* default lateness warning: 4s */
@@ -1466,6 +1469,9 @@ static void _event_add_timer_timeval(const struct xref_eventsched *xref,
 		if (event_timer_list_first(&m->timer) == event)
 			AWAKEN(m);
 	}
+	if (!event)
+		return;
+
 #define ONEYEAR2SEC (60 * 60 * 24 * 365)
 	if (time_relative->tv_sec > ONEYEAR2SEC)
 		flog_err(EC_LIB_TIMER_TOO_LONG,
@@ -2758,7 +2764,7 @@ void event_call(struct event *event)
 	event->master->last_getrusage = after;
 
 	unsigned long walltime, cputime;
-	unsigned long exp;
+	size_t exp;
 
 	walltime = event_consumed_time(&after, &before, &cputime);
 
@@ -2806,8 +2812,8 @@ void event_call(struct event *event)
 					  1, memory_order_seq_cst);
 		flog_warn(
 			EC_LIB_SLOW_THREAD_CPU,
-			"CPU HOG: task %s (%lx) ran for %lums (cpu time %lums)",
-			event->xref->funcname, (unsigned long)event->func,
+			"CPU HOG: task %s (%p) ran for %lums (cpu time %lums)",
+			event->xref->funcname, (void *)event->func,
 			walltime / 1000, cputime / 1000);
 
 	} else if (walltime_threshold && walltime > walltime_threshold) {
@@ -2820,8 +2826,8 @@ void event_call(struct event *event)
 					  1, memory_order_seq_cst);
 		flog_warn(
 			EC_LIB_SLOW_THREAD_WALL,
-			"STARVATION: task %s (%lx) ran for %lums (cpu time %lums)",
-			event->xref->funcname, (unsigned long)event->func,
+			"STARVATION: task %s (%p) ran for %lums (cpu time %lums)",
+			event->xref->funcname, (void *)event->func,
 			walltime / 1000, cputime / 1000);
 	}
 }

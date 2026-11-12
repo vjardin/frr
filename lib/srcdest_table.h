@@ -96,4 +96,8 @@ struct route_node *srcdest_table_get_next(struct route_table *table,
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/srcdest_table.h"
+#endif
+
 #endif /* _ZEBRA_SRC_DEST_TABLE_H */

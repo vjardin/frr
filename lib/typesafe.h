@@ -1227,4 +1227,8 @@ extern struct sskip_item *typesafe_skiplist_pop(struct sskip_head *head);
  */
 #include "lib/typerb.h" // IWYU pragma: export
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/typesafe.h"
+#endif
+
 #endif /* _FRR_TYPESAFE_H */

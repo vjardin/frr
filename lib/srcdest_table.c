@@ -22,7 +22,7 @@ DEFINE_MTYPE_STATIC(LIB, ROUTE_SRC_NODE, "Route source node");
 /* ----- functions to manage rnodes _with_ srcdest table ----- */
 struct srcdest_rnode {
 	/* must be first in structure for casting to/from route_node */
-	ROUTE_NODE_FIELDS;
+	ROUTE_NODE_FIELDS
 
 	struct route_table *src_table;
 };
@@ -231,7 +231,7 @@ struct route_node *srcdest_route_next(struct route_node *rn)
 	}
 }
 
-struct route_node *srcdest_rnode_get(struct route_table *table,
+struct route_node *(srcdest_rnode_get)(struct route_table *table,
 				     union prefixconstptr dst_pu,
 				     const struct prefix_ipv6 *src_p)
 {
@@ -242,7 +242,7 @@ struct route_node *srcdest_rnode_get(struct route_table *table,
 	return srcdest_srcnode_get(rn, src_p);
 }
 
-struct route_node *srcdest_rnode_lookup(struct route_table *table,
+struct route_node *(srcdest_rnode_lookup)(struct route_table *table,
 					union prefixconstptr dst_pu,
 					const struct prefix_ipv6 *src_p)
 {
@@ -304,7 +304,7 @@ const char *srcdest_rnode2str(const struct route_node *rn, char *str, int size)
 }
 
 /* Find next node; may have same or different dest as 'dst_pu' */
-struct route_node *srcdest_table_get_next(struct route_table *table,
+struct route_node *(srcdest_table_get_next)(struct route_table *table,
 					  union prefixconstptr dst_pu,
 					  const struct prefix_ipv6 *src_p)
 {

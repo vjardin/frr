@@ -71,10 +71,12 @@ struct nexthop {
 	 *
 	 * static_assert() below needs to be updated when fields are added
 	 */
-	char _hash_begin[0];
+	union {
+		char _hash_begin[1];
 
-	/* see above */
-	enum nexthop_types_t type;
+		/* see above */
+		enum nexthop_types_t type;
+	};
 
 	/* What vrf is this nexthop associated with? */
 	vrf_id_t vrf_id;
@@ -102,10 +104,12 @@ struct nexthop {
 	 * directly fed into jhash().  Most of them are actually part of the
 	 * hash but have special rules or handling attached.
 	 */
-	char _hash_end[0];
+	union {
+		char _hash_end[1];
 
-	/* Weight of the nexthop ( for unequal cost ECMP ) */
-	uint16_t weight;
+		/* Weight of the nexthop ( for unequal cost ECMP ) */
+		uint16_t weight;
+	};
 
 	uint16_t flags;
 #define NEXTHOP_FLAG_ACTIVE     (1 << 0) /* This nexthop is alive. */

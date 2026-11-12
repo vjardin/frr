@@ -183,7 +183,7 @@ static void qmem_exit_fopen(struct exit_dump_args *eda)
 static int qmem_exit_walker(void *arg, struct memgroup *mg, struct memtype *mt)
 {
 	struct exit_dump_args *eda = arg;
-	const char *prefix = eda->daemon_name ?: "NONE";
+	const char *prefix = eda->daemon_name ? eda->daemon_name : "NONE";
 	char size[32];
 
 	if (!mt)

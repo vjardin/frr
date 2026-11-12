@@ -2854,7 +2854,7 @@ void nb_init(struct event_loop *tm,
 	     const struct frr_yang_module_info *const modules[],
 	     size_t nmodules, bool db_enabled, bool load_library)
 {
-	struct yang_module *loaded[nmodules + 2];
+	FRR_VLA(struct yang_module *, loaded, nmodules + 2);
 
 	/*
 	 * Currently using this explicit compile feature in libyang2 leads to

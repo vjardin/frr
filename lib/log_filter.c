@@ -37,37 +37,49 @@ void zlog_filter_clear(void)
 
 int zlog_filter_add(const char *filter)
 {
-	frr_with_mutex (&logfilterlock) {
-		if (zlog_filter_count >= ZLOG_FILTERS_MAX)
-			return 1;
+	int ret = 0;
 
-		if (zlog_filter_lookup(filter) != -1)
+	frr_with_mutex (&logfilterlock) {
+		if (zlog_filter_count >= ZLOG_FILTERS_MAX) {
+			ret = 1;
+			break;
+		}
+
+		if (zlog_filter_lookup(filter) != -1) {
 			/* Filter already present */
-			return -1;
+			ret = -1;
+			break;
+		}
 
 		strlcpy(zlog_filters[zlog_filter_count], filter,
 			sizeof(zlog_filters[0]));
 
-		if (zlog_filters[zlog_filter_count][0] == '\0')
+		if (zlog_filters[zlog_filter_count][0] == '\0') {
 			/* Filter was either empty or didn't get copied
 			 * correctly
 			 */
-			return -1;
+			ret = -1;
+			break;
+		}
 
 		zlog_filter_count++;
 	}
-	return 0;
+	return ret;
 }
 
 int zlog_filter_del(const char *filter)
 {
+	int ret = 0;
+
 	frr_with_mutex (&logfilterlock) {
 		int found_idx = zlog_filter_lookup(filter);
 		int last_idx = zlog_filter_count - 1;
 
-		if (found_idx == -1)
+		if (found_idx == -1) {
 			/* Didn't find the filter to delete */
-			return -1;
+			ret = -1;
+			break;
+		}
 
 		/* Adjust the filter array */
 		memmove(zlog_filters[found_idx], zlog_filters[found_idx + 1],
@@ -75,13 +87,14 @@ int zlog_filter_del(const char *filter)
 
 		zlog_filter_count--;
 	}
-	return 0;
+	return ret;
 }
 
 /* Dump all filters to buffer, delimited by new line */
 int zlog_filter_dump(char *buf, size_t max_size)
 {
 	int len = 0;
+	bool overflow = false;
 
 	frr_with_mutex (&logfilterlock) {
 		for (int i = 0; i < zlog_filter_count; i++) {
@@ -90,34 +103,39 @@ int zlog_filter_dump(char *buf, size_t max_size)
 			ret = snprintf(buf + len, max_size - len, " %s\n",
 				       zlog_filters[i]);
 			len += ret;
-			if ((ret < 0) || ((size_t)len >= max_size))
-				return -1;
+			if ((ret < 0) || ((size_t)len >= max_size)) {
+				overflow = true;
+				break;
+			}
 		}
 	}
 
-	return len;
+	return overflow ? -1 : len;
 }
 
 static int search_buf(const char *buf, size_t len)
 {
 	char *found = NULL;
+	int ret = -1;
 
 	frr_with_mutex (&logfilterlock) {
 		for (int i = 0; i < zlog_filter_count; i++) {
 			found = memmem(buf, len, zlog_filters[i],
 				       strlen(zlog_filters[i]));
-			if (found != NULL)
-				return 0;
+			if (found != NULL) {
+				ret = 0;
+				break;
+			}
 		}
 	}
 
-	return -1;
+	return ret;
 }
 
 static void zlog_filterfile_fd(struct zlog_target *zt, struct zlog_msg *msgs[],
 			       size_t nmsgs)
 {
-	struct zlog_msg *msgfilt[nmsgs];
+	FRR_VLA(struct zlog_msg *, msgfilt, nmsgs);
 	size_t i, o = 0;
 	const char *text;
 	size_t text_len;

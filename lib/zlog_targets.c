@@ -63,10 +63,12 @@ void zlog_fd(struct zlog_target *zt, struct zlog_msg *msgs[], size_t nmsgs)
 	int fd;
 	size_t i, textlen, iovpos = 0;
 	size_t niov = MIN(4 * nmsgs + 1, IOV_MAX);
-	struct iovec iov[niov];
+	FRR_VLA(struct iovec, iov, niov);
 	/* "\nYYYY-MM-DD HH:MM:SS.NNNNNNNNN+ZZ:ZZ " = 37 chars */
 #define TS_LEN 40
-	char ts_buf[TS_LEN * nmsgs], *ts_pos = ts_buf;
+	size_t ts_bufsz = TS_LEN * nmsgs;
+	FRR_VLA(char, ts_buf, ts_bufsz);
+	char *ts_pos = ts_buf;
 
 	fd = atomic_load_explicit(&zte->fd, memory_order_relaxed);
 
@@ -78,7 +80,7 @@ void zlog_fd(struct zlog_target *zt, struct zlog_msg *msgs[], size_t nmsgs)
 			struct fbuf fbuf = {
 				.buf = ts_buf,
 				.pos = ts_pos,
-				.len = sizeof(ts_buf),
+				.len = ts_bufsz,
 			};
 
 			iov[iovpos].iov_base = ts_pos;
@@ -124,9 +126,9 @@ void zlog_fd(struct zlog_target *zt, struct zlog_msg *msgs[], size_t nmsgs)
 		 *  - this being the last message in the batch
 		 *  - not enough remaining iov entries
 		 */
-		if (iovpos > 0 && (ts_buf + sizeof(ts_buf) - ts_pos < TS_LEN
+		if (iovpos > 0 && (ts_buf + ts_bufsz - ts_pos < TS_LEN
 				   || i + 1 == nmsgs
-				   || array_size(iov) - iovpos < 5)) {
+				   || niov - iovpos < 5)) {
 			writev(fd, iov, iovpos);
 
 			iovpos = 0;
@@ -262,30 +264,32 @@ void zlog_file_set_other(struct zlog_cfg_file *zcf)
 
 bool zlog_file_set_filename(struct zlog_cfg_file *zcf, const char *filename)
 {
+	bool ret = false;
+
 	frr_with_mutex (&zcf->cfg_mtx) {
 		XFREE(MTYPE_LOG_FD_NAME, zcf->filename);
 		zcf->filename = XSTRDUP(MTYPE_LOG_FD_NAME, filename);
 		zcf->fd = -1;
 
-		return zlog_file_cycle(zcf);
+		ret = zlog_file_cycle(zcf);
 	}
-	assert(0);
-	return false;
+	return ret;
 }
 
 bool zlog_file_set_fd(struct zlog_cfg_file *zcf, int fd)
 {
+	bool ret = true;
+
 	frr_with_mutex (&zcf->cfg_mtx) {
 		if (zcf->fd == fd)
-			return true;
+			break;
 
 		XFREE(MTYPE_LOG_FD_NAME, zcf->filename);
 		zcf->fd = fd;
 
-		return zlog_file_cycle(zcf);
+		ret = zlog_file_cycle(zcf);
 	}
-	assert(0);
-	return false;
+	return ret;
 }
 
 struct rcu_close_rotate {
@@ -297,21 +301,29 @@ bool zlog_file_rotate(struct zlog_cfg_file *zcf)
 {
 	struct rcu_close_rotate *rcr;
 	int fd;
+	bool done = false, ok = true;
 
 	frr_with_mutex (&zcf->cfg_mtx) {
-		if (!zcf->active || !zcf->filename)
-			return true;
+		if (!zcf->active || !zcf->filename) {
+			done = true;
+			break;
+		}
 
 		fd = open(zcf->filename,
 			  O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOCTTY,
 			  LOGFILE_MASK);
-		if (fd < 0)
-			return false;
+		if (fd < 0) {
+			done = true;
+			ok = false;
+			break;
+		}
 
 		fd = atomic_exchange_explicit(&zcf->active->fd,
 					      (uint_fast32_t)fd,
 					      memory_order_relaxed);
 	}
+	if (done)
+		return ok;
 
 	rcr = XCALLOC(MTYPE_LOG_FD_ROTATE, sizeof(*rcr));
 	rcu_close(&rcr->head_close, fd);
@@ -418,7 +430,8 @@ static int zlt_fini(void)
 
 static struct zlt_fd zlog_startup_stderr;
 
-__attribute__((_CONSTRUCTOR(450))) static void zlog_startup_init(void)
+FRR_CONSTRUCTOR(450, zlog_startup_init);
+static void zlog_startup_init(void)
 {
 	zlog_startup_stderr.zt.prio_min = LOG_WARNING;
 	zlog_startup_stderr.zt.logfn = zlog_fd;
@@ -544,11 +557,11 @@ void zlog_syslog_set_facility(int facility)
 
 	frr_with_mutex (&syslog_cfg_mutex) {
 		if (facility == syslog_facility)
-			return;
+			break;
 		syslog_facility = facility;
 
 		if (syslog_prio_min == ZLOG_DISABLED)
-			return;
+			break;
 
 		newztc = zlog_target_clone(MTYPE_LOG_SYSL, &zlt_syslog->zt,
 					   sizeof(*newzt));
@@ -565,11 +578,12 @@ void zlog_syslog_set_facility(int facility)
 
 int zlog_syslog_get_facility(void)
 {
+	int ret;
+
 	frr_with_mutex (&syslog_cfg_mutex) {
-		return syslog_facility;
+		ret = syslog_facility;
 	}
-	assert(0);
-	return 0;
+	return ret;
 }
 
 void zlog_syslog_set_prio_min(int prio_min)
@@ -579,7 +593,7 @@ void zlog_syslog_set_prio_min(int prio_min)
 
 	frr_with_mutex (&syslog_cfg_mutex) {
 		if (prio_min == syslog_prio_min)
-			return;
+			break;
 		syslog_prio_min = prio_min;
 
 		if (syslog_prio_min != ZLOG_DISABLED) {
@@ -603,9 +617,10 @@ void zlog_syslog_set_prio_min(int prio_min)
 
 int zlog_syslog_get_prio_min(void)
 {
+	int ret;
+
 	frr_with_mutex (&syslog_cfg_mutex) {
-		return syslog_prio_min;
+		ret = syslog_prio_min;
 	}
-	assert(0);
-	return 0;
+	return ret;
 }

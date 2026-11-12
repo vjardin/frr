@@ -184,13 +184,13 @@ static inline void zlog_tls_free(void *arg);
 #ifdef __OpenBSD__
 static pthread_key_t zlog_tls_key;
 
-static void zlog_tls_key_init(void) __attribute__((_CONSTRUCTOR(500)));
+FRR_CONSTRUCTOR(500, zlog_tls_key_init);
 static void zlog_tls_key_init(void)
 {
 	pthread_key_create(&zlog_tls_key, zlog_tls_free);
 }
 
-static void zlog_tls_key_fini(void) __attribute__((_DESTRUCTOR(500)));
+FRR_DESTRUCTOR(500, zlog_tls_key_fini);
 static void zlog_tls_key_fini(void)
 {
 	pthread_key_delete(zlog_tls_key);
@@ -224,7 +224,6 @@ static inline void zlog_tls_set(struct zlog_tls *val)
 }
 #endif
 
-#ifdef CAN_DO_TLS
 static intmax_t zlog_gettid(void)
 {
 #ifndef __OpenBSD__
@@ -260,6 +259,7 @@ static intmax_t zlog_gettid(void)
 	return rv;
 }
 
+#ifdef CAN_DO_TLS
 void zlog_tls_buffer_init(void)
 {
 	struct zlog_tls *zlog_tls;
@@ -939,8 +939,8 @@ size_t zlog_msg_ts(struct zlog_msg *msg, struct fbuf *out, uint32_t flags)
 		} else
 			snprintfrr(msg->ts_zonetail, sizeof(msg->ts_zonetail),
 				   "%+03d:%02d",
-				   (int)(tm.tm_gmtoff / 3600),
-				   (int)(labs(tm.tm_gmtoff) / 60) % 60);
+				   (int)(TM_GMTOFF(&tm) / 3600),
+				   (int)(labs(TM_GMTOFF(&tm)) / 60) % 60);
 
 		msg->ts_dot = msg->ts_str + strlen(msg->ts_str);
 		snprintfrr(msg->ts_dot,
@@ -1129,6 +1129,14 @@ void zlog_init(const char *progname, const char *protoname,
 		zlog_prefixsz = snprintfrr(zlog_prefix, sizeof(zlog_prefix),
 					   "%s: ", protoname);
 	}
+
+#ifdef _WIN32
+	/* no openat(): per-thread log buffers/crashlog files are not
+	 * available, log messages are written out directly instead
+	 */
+	hook_call(zlog_init, progname, protoname, instance, uid, gid);
+	return;
+#endif
 
 	if (mkdir(TMPBASEDIR, 0700) != 0) {
 		if (errno != EEXIST) {

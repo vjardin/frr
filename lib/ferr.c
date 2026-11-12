@@ -36,13 +36,13 @@ static void ferr_free(void *arg)
 	XFREE(MTYPE_ERRINFO, arg);
 }
 
-static void err_key_init(void) __attribute__((_CONSTRUCTOR(500)));
+FRR_CONSTRUCTOR(500, err_key_init);
 static void err_key_init(void)
 {
 	pthread_key_create(&errkey, ferr_free);
 }
 
-static void err_key_fini(void) __attribute__((_DESTRUCTOR(500)));
+FRR_DESTRUCTOR(500, err_key_fini);
 static void err_key_fini(void)
 {
 	pthread_key_delete(errkey);

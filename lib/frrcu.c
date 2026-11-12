@@ -126,7 +126,7 @@ static void rcu_bump(void);
  */
 static void rcu_thread_end(void *rcu_thread);
 
-static void rcu_preinit(void) __attribute__((constructor));
+FRR_CONSTRUCTOR_DEFAULT(rcu_preinit);
 static void rcu_preinit(void)
 {
 	struct rcu_thread *rt;

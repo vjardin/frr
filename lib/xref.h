@@ -289,4 +289,8 @@ struct _xref_p {
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/xref.h"
+#endif
+
 #endif /* _FRR_XREF_H */

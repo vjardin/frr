@@ -1540,6 +1540,9 @@ static int plist_remove(struct vty *vty, const char *iptype, const char *name,
 	return filter_remove_check_empty(vty, "prefix", iptype, name, sseq,
 					 false);
 }
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define plist_remove(a0, a1, a2, a3, a4, a5, a6, a7) plist_remove(a0, a1, a2, a3, a4, PFX_CPTR(a5), a6, a7)
+#endif
 
 DEFPY_YANG(
 	ip_prefix_list, ip_prefix_list_cmd,

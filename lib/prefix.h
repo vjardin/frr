@@ -173,7 +173,7 @@ struct flowspec_prefix {
 struct prefix {
 	uint8_t family;
 	uint16_t prefixlen;
-	union {
+	FRR_ALIGNAS(8) union {
 		uint8_t prefix;
 		struct in_addr prefix4;
 		struct in6_addr prefix6;
@@ -187,27 +187,27 @@ struct prefix {
 		uintptr_t ptr;
 		struct evpn_addr prefix_evpn; /* AF_EVPN */
 		struct flowspec_prefix prefix_flowspec; /* AF_FLOWSPEC */
-	} u __attribute__((aligned(8)));
+	} u;
 };
 
 /* IPv4 prefix structure. */
 struct prefix_ipv4 {
 	uint8_t family;
 	uint16_t prefixlen;
-	struct in_addr prefix __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) struct in_addr prefix;
 };
 
 /* IPv6 prefix structure. */
 struct prefix_ipv6 {
 	uint8_t family;
 	uint16_t prefixlen;
-	struct in6_addr prefix __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) struct in6_addr prefix;
 };
 
 struct prefix_ls {
 	uint8_t family;
 	uint16_t prefixlen;
-	struct in_addr id __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) struct in_addr id;
 	struct in_addr adv_router;
 };
 
@@ -215,21 +215,21 @@ struct prefix_ls {
 struct prefix_rd {
 	uint8_t family;
 	uint16_t prefixlen;
-	uint8_t val[8] __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) uint8_t val[8];
 };
 
 /* Prefix for ethernet. */
 struct prefix_eth {
 	uint8_t family;
 	uint16_t prefixlen;
-	struct ethaddr eth_addr __attribute__((aligned(8))); /* AF_ETHERNET */
+	FRR_ALIGNAS(8) struct ethaddr eth_addr; /* AF_ETHERNET */
 };
 
 /* EVPN prefix structure. */
 struct prefix_evpn {
 	uint8_t family;
 	uint16_t prefixlen;
-	struct evpn_addr prefix __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) struct evpn_addr prefix;
 };
 
 static inline int is_evpn_prefix_ipaddr_none(const struct prefix_evpn *evp)
@@ -281,7 +281,7 @@ static inline int is_evpn_prefix_ipaddr_v6(const struct prefix_evpn *evp)
 struct prefix_fs {
 	uint8_t family;
 	uint16_t prefixlen; /* unused */
-	struct flowspec_prefix  prefix __attribute__((aligned(8)));
+	FRR_ALIGNAS(8) struct flowspec_prefix  prefix;
 };
 
 struct prefix_sg {
@@ -643,6 +643,10 @@ static inline bool ipv4_mcast_ssm(const struct in_addr *addr)
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef _MSC_VER
+#include "lib/win32/msvc/prefix.h"
 #endif
 
 #endif /* _ZEBRA_PREFIX_H */

@@ -902,4 +902,8 @@ extern int _darr_search_floor(const void *a, size_t esize, const void *key, bool
  */
 #define darr_foreach_i(A, I) for ((I) = 0; (I) < darr_len(A); (I)++)
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/darr.h"
+#endif
+
 #endif /* _FRR_DARR_H_ */

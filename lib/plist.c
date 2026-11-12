@@ -767,7 +767,7 @@ static int prefix_list_entry_match(struct prefix_list_entry *pentry,
 	return 1;
 }
 
-enum prefix_list_type prefix_list_apply_ext(
+enum prefix_list_type (prefix_list_apply_ext)(
 	struct prefix_list *plist,
 	const struct prefix_list_entry **which,
 	union prefixconstptr object,

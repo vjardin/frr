@@ -226,4 +226,8 @@ extern const char *yang_dnode_get_identity(const struct lyd_node *dnode);
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/yang_wrappers.h"
+#endif
+
 #endif /* _FRR_NORTHBOUND_WRAPPERS_H_ */

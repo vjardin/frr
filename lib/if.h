@@ -684,4 +684,8 @@ extern const struct frr_yang_module_info frr_interface_cli_info;
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/if.h"
+#endif
+
 #endif /* _ZEBRA_IF_H */

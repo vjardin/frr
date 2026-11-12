@@ -168,4 +168,8 @@ void frr_json_set_complete(struct json_object *jobj);
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/json.h"
+#endif
+
 #endif /* _QUAGGA_JSON_H */

@@ -60,7 +60,10 @@ extern float ntohf(float net);
 #undef htobe64
 #endif
 
-#if BYTE_ORDER == LITTLE_ENDIAN
+#if defined(_MSC_VER)
+#define be64toh(x)	((uint64_t)_byteswap_uint64(x))
+#define htobe64(x)	((uint64_t)_byteswap_uint64(x))
+#elif BYTE_ORDER == LITTLE_ENDIAN
 #define be64toh(x)	({ uint64_t r = __builtin_bswap64(x); r; })
 #define htobe64(x)	({ uint64_t r = __builtin_bswap64(x); r; })
 #elif BYTE_ORDER == BIG_ENDIAN

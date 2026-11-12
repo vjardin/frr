@@ -188,7 +188,7 @@ void print_version(const char *progname)
 char *argv_concat(struct cmd_token **argv, int argc, int shift)
 {
 	int cnt = MAX(argc - shift, 0);
-	const char *argstr[cnt + 1];
+	FRR_VLA(const char *, argstr, cnt + 1);
 
 	if (!cnt)
 		return NULL;
@@ -1542,7 +1542,7 @@ static void permute(struct graph_node *start, struct vty *vty)
 static void print_cmd(struct vty *vty, const char *cmd)
 {
 	int i, j, len = strlen(cmd);
-	char buf[len + 1];
+	FRR_VLA(char, buf, len + 1);
 	bool skip = false;
 
 	j = 0;

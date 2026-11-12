@@ -379,7 +379,8 @@ static int log_vty_init(const char *progname, const char *protoname,
 	return 0;
 }
 
-__attribute__((_CONSTRUCTOR(475))) static void log_vty_preinit(void)
+FRR_CONSTRUCTOR(475, log_vty_preinit);
+static void log_vty_preinit(void)
 {
 	hook_register(zlog_init, log_vty_init);
 }

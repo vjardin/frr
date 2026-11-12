@@ -141,4 +141,8 @@ extern void _zprivs_lower(struct zebra_privs_t **privs);
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/privs.h"
+#endif
+
 #endif /* _ZEBRA_PRIVS_H */

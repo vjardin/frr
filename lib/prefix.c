@@ -194,7 +194,7 @@ const char *safi2str(safi_t safi)
 }
 
 /* If n includes p prefix then return 1 else return 0. */
-int prefix_match(union prefixconstptr unet, union prefixconstptr upfx)
+int (prefix_match)(union prefixconstptr unet, union prefixconstptr upfx)
 {
 	const struct prefix *n = unet.p;
 	const struct prefix *p = upfx.p;
@@ -294,7 +294,7 @@ int evpn_type5_prefix_match(const struct prefix *n, const struct prefix *p)
 }
 
 /* If n includes p then return 1 else return 0. Prefix mask is not considered */
-int prefix_match_network_statement(union prefixconstptr unet,
+int (prefix_match_network_statement)(union prefixconstptr unet,
 				   union prefixconstptr upfx)
 {
 	const struct prefix *n = unet.p;
@@ -324,7 +324,7 @@ int prefix_match_network_statement(union prefixconstptr unet,
 #undef prefix_copy	/* cf. prefix.h */
 #endif
 
-void prefix_copy(union prefixptr udest, union prefixconstptr usrc)
+void (prefix_copy)(union prefixptr udest, union prefixconstptr usrc)
 {
 	struct prefix *dest = udest.p;
 	const struct prefix *src = usrc.p;
@@ -410,7 +410,7 @@ static bool evpn_addr_same(const struct evpn_addr *e1, const struct evpn_addr *e
  * the same.  Note that this routine has the same return value sense
  * as '==' (which is different from prefix_cmp).
  */
-int prefix_same(union prefixconstptr up1, union prefixconstptr up2)
+int (prefix_same)(union prefixconstptr up1, union prefixconstptr up2)
 {
 	const struct prefix *p1 = up1.p;
 	const struct prefix *p2 = up2.p;
@@ -463,7 +463,7 @@ int prefix_same(union prefixconstptr up1, union prefixconstptr up2)
  * this routine has the same return sense as strcmp (which is different
  * from prefix_same).
  */
-int prefix_cmp(union prefixconstptr up1, union prefixconstptr up2)
+int (prefix_cmp)(union prefixconstptr up1, union prefixconstptr up2)
 {
 	const struct prefix *p1 = up1.p;
 	const struct prefix *p2 = up2.p;
@@ -529,7 +529,7 @@ int prefix_cmp(union prefixconstptr up1, union prefixconstptr up2)
  * address families don't match, return -1; otherwise the return value is
  * in range 0 ... maximum prefix length for the address family.
  */
-int prefix_common_bits(union prefixconstptr ua, union prefixconstptr ub)
+int (prefix_common_bits)(union prefixconstptr ua, union prefixconstptr ub)
 {
 	const struct prefix *p1 = ua.p;
 	const struct prefix *p2 = ub.p;
@@ -568,7 +568,7 @@ int prefix_common_bits(union prefixconstptr ua, union prefixconstptr ub)
 }
 
 /* Return prefix family type string. */
-const char *prefix_family_str(union prefixconstptr pu)
+const char *(prefix_family_str)(union prefixconstptr pu)
 {
 	const struct prefix *p = pu.p;
 
@@ -890,7 +890,7 @@ void apply_mask_ipv6(struct prefix_ipv6 *p)
 	}
 }
 
-void apply_mask(union prefixptr pu)
+void (apply_mask)(union prefixptr pu)
 {
 	struct prefix *p = pu.p;
 
@@ -945,7 +945,7 @@ void prefix2sockunion(const struct prefix *p, union sockunion *su)
 		       sizeof(struct in6_addr));
 }
 
-int prefix_blen(union prefixconstptr pu)
+int (prefix_blen)(union prefixconstptr pu)
 {
 	const struct prefix *p = pu.p;
 
@@ -1137,7 +1137,7 @@ static size_t format_prefixlen(char *buf, size_t l, int prefixlen, size_t buf_si
 	return l;
 }
 
-const char *prefix2str(union prefixconstptr pu, char *str, int size)
+const char *(prefix2str)(union prefixconstptr pu, char *str, int size)
 {
 	const struct prefix *p = pu.p;
 	char buf[PREFIX2STR_BUFFER];
@@ -1225,6 +1225,9 @@ static ssize_t prefixhost2str(struct fbuf *fbuf, union prefixconstptr pu)
 		return bprintfrr(fbuf, "{prefix.af=%dPF}", p->family);
 	}
 }
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define prefixhost2str(a0, a1) prefixhost2str(a0, PFX_CPTR(a1))
+#endif
 
 const char *prefix_sg2str(const struct prefix_sg *sg, char *sg_str)
 {

@@ -72,7 +72,7 @@ struct memgroup {
 		.ref = NULL,                                                   \
 		__VA_ARGS__                                                    \
 	};                                                                     \
-	static void _mginit_##mname(void) __attribute__((_CONSTRUCTOR(1000))); \
+	FRR_CONSTRUCTOR(1000, _mginit_##mname);                                \
 	static void _mginit_##mname(void)                                      \
 	{                                                                      \
 		extern struct memgroup **mg_insert;                            \
@@ -80,7 +80,7 @@ struct memgroup {
 		*mg_insert = &_mg_##mname;                                     \
 		mg_insert = &_mg_##mname.next;                                 \
 	}                                                                      \
-	static void _mgfini_##mname(void) __attribute__((_DESTRUCTOR(1000)));  \
+	FRR_DESTRUCTOR(1000, _mgfini_##mname);                                 \
 	static void _mgfini_##mname(void)                                      \
 	{                                                                      \
 		if (_mg_##mname.next)                                          \
@@ -106,7 +106,7 @@ struct memgroup {
 		.size = 0,                                                     \
 		.ref = NULL,                                                   \
 	} };                                                                   \
-	static void _mtinit_##mname(void) __attribute__((_CONSTRUCTOR(1001))); \
+	FRR_CONSTRUCTOR(1001, _mtinit_##mname);                                \
 	static void _mtinit_##mname(void)                                      \
 	{                                                                      \
 		if (_mg_##group.insert == NULL)                                \
@@ -115,7 +115,7 @@ struct memgroup {
 		*_mg_##group.insert = MTYPE_##mname;                           \
 		_mg_##group.insert = &MTYPE_##mname->next;                      \
 	}                                                                      \
-	static void _mtfini_##mname(void) __attribute__((_DESTRUCTOR(1001)));  \
+	FRR_DESTRUCTOR(1001, _mtfini_##mname);                                 \
 	static void _mtfini_##mname(void)                                      \
 	{                                                                      \
 		if (MTYPE_##mname->next)                                       \

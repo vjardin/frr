@@ -211,7 +211,7 @@ static int __send_notification(struct mgmt_be_client *client, const char *xpath,
 			: op == NOTIFY_OP_DS_REPLACE ? "replace "
 			: op == NOTIFY_OP_DS_PATCH   ? "patch "
 						     : "",
-			op == NOTIFY_OP_NOTIFICATION ? "" : "DS ", xpath ?: tree->schema->name);
+			op == NOTIFY_OP_NOTIFICATION ? "" : "DS ", xpath ? xpath : tree->schema->name);
 	/*
 	 * Allocate a message and append the data to it using `format`
 	 */

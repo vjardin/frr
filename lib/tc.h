@@ -27,6 +27,7 @@ enum tc_qdisc_kind {
 
 struct tc_qdisc_htb {
 	/* currently no members */
+	FRR_EMPTY_STRUCT_MEMBER
 };
 
 struct tc_qdisc {
@@ -69,10 +70,12 @@ enum tc_filter_kind {
 
 struct tc_bpf {
 	/* TODO: fill in */
+	FRR_EMPTY_STRUCT_MEMBER
 };
 
 struct tc_flow {
 	/* TODO: fill in */
+	FRR_EMPTY_STRUCT_MEMBER
 };
 
 struct tc_flower {
@@ -103,6 +106,7 @@ struct tc_flower {
 
 struct tc_u32 {
 	/* TODO: fill in */
+	FRR_EMPTY_STRUCT_MEMBER
 };
 
 struct tc_filter {

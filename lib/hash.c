@@ -431,9 +431,10 @@ DEFUN_NOSH(show_hash_stats,
 
 	/* display header */
 	char header[] = "Showing hash table statistics for ";
-	char underln[sizeof(header) + strlen(frr_protonameinst)];
-	memset(underln, '-', sizeof(underln));
-	underln[sizeof(underln) - 1] = '\0';
+	size_t underln_len = sizeof(header) + strlen(frr_protonameinst);
+	FRR_VLA(char, underln, underln_len);
+	memset(underln, '-', underln_len);
+	underln[underln_len - 1] = '\0';
 	vty_out(vty, "%s%s\n", header, frr_protonameinst);
 	vty_out(vty, "%s\n", underln);
 

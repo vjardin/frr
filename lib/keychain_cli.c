@@ -177,7 +177,7 @@ static long __timezone_offset(void)
 
 	time(&now);
 	tm_now = localtime(&now);
-	return tm_now->tm_gmtoff;
+	return TM_GMTOFF(tm_now);
 }
 
 static int __lifetime_set(struct vty *vty, char timebuf[32],

@@ -717,7 +717,7 @@ struct lyd_node *yang_state_new(struct lyd_node *tree, const char *path, const c
 	 * created node (could be container of path) not the actual path dnode.
 	 * So we always find.
 	 */
-	err = lyd_find_path(tree ?: parent, path, false, &dnode);
+	err = lyd_find_path(tree ? tree : parent, path, false, &dnode);
 	assert(err == LY_SUCCESS);
 
 	return dnode;

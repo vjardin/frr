@@ -83,7 +83,9 @@ extern "C" {
 #endif
 #define OPTIMIZE _OPTIMIZE_O3 _OPTIMIZE_HOT
 
-#if !defined(__GNUC__)
+#if defined(_MSC_VER)
+/* no symbol visibility */
+#elif !defined(__GNUC__)
 #error module code needs GCC visibility extensions
 #elif __GNUC__ < 4
 #error module code needs GCC visibility extensions
@@ -121,6 +123,19 @@ extern "C" {
 #ifndef assume
 #define assume(x)
 #endif
+
+/* constructors / destructors, use like:
+ *   FRR_CONSTRUCTOR(1000, foo_init);
+ *   static void foo_init(void)
+ *   {
+ *   ...
+ * FRR_CONSTRUCTOR_DEFAULT() has no priority and runs after prioritized ones.
+ */
+#define FRR_CONSTRUCTOR(prio, fn)                                              \
+	static void fn(void) __attribute__((_CONSTRUCTOR(prio)))
+#define FRR_CONSTRUCTOR_DEFAULT(fn) static void fn(void) __attribute__((constructor))
+#define FRR_DESTRUCTOR(prio, fn)                                               \
+	static void fn(void) __attribute__((_DESTRUCTOR(prio)))
 
 #ifdef __COVERITY__
 /* __coverity_panic__() is named a bit poorly, it's essentially the same as
@@ -482,6 +497,22 @@ _Static_assert(sizeof(_uint64_t) == 8 && sizeof(_int64_t) == 8,
 #define _DATA_SECTION(name) __attribute__((section(".data." name)))
 #endif
 
+/* portable member alignment (unlike __attribute__((aligned(n))) after it) */
+#ifdef __cplusplus
+#define FRR_ALIGNAS(n) alignas(n)
+#else
+#define FRR_ALIGNAS(n) _Alignas(n)
+#endif
+
+/* ISO C (unlike GNU C) has no empty structs */
+#define FRR_EMPTY_STRUCT_MEMBER
+
+/* runtime-sized local array, use like
+ *   FRR_VLA(struct foo *, items, count);
+ * Not every compiler has VLAs, so sizeof(items) may not be the array size
+ */
+#define FRR_VLA(type, name, count) type name[count]
+
 /* Wrapper for the 'noreturn' metadata */
 #define FRR_NORETURN __attribute__((noreturn))
 
@@ -491,6 +522,10 @@ _Static_assert(sizeof(_uint64_t) == 8 && sizeof(_int64_t) == 8,
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef _MSC_VER
+#include "lib/win32/msvc/compiler.h"
 #endif
 
 #endif /* _FRR_COMPILER_H */

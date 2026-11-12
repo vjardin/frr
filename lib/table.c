@@ -223,7 +223,7 @@ static void set_link(struct route_node *node, struct route_node *new)
 }
 
 /* Find matched prefix. */
-struct route_node *route_node_match(struct route_table *table,
+struct route_node *(route_node_match)(struct route_table *table,
 				    union prefixconstptr pu)
 {
 	const struct prefix *p = pu.p;
@@ -269,7 +269,7 @@ done:
 }
 
 /* Lookup same prefix node.  Return NULL when we can't find route. */
-struct route_node *route_node_lookup(struct route_table *table,
+struct route_node *(route_node_lookup)(struct route_table *table,
 				     union prefixconstptr pu)
 {
 	struct route_node rn, *node;
@@ -284,7 +284,7 @@ struct route_node *route_node_lookup(struct route_table *table,
 }
 
 /* Lookup same prefix node.  Return NULL when we can't find route. */
-struct route_node *route_node_lookup_maynull(struct route_table *table,
+struct route_node *(route_node_lookup_maynull)(struct route_table *table,
 					     union prefixconstptr pu)
 {
 	struct route_node rn, *node;
@@ -299,7 +299,7 @@ struct route_node *route_node_lookup_maynull(struct route_table *table,
 }
 
 /* Add node to routing table. */
-struct route_node *route_node_get(struct route_table *table,
+struct route_node *(route_node_get)(struct route_table *table,
 				  union prefixconstptr pu)
 {
 	if (frrtrace_enabled(frr_libfrr, route_node_get)) {
@@ -830,7 +830,7 @@ route_table_get_next_internal(struct route_table *table,
  * Find the node that occurs after the given prefix in order of
  * iteration.
  */
-struct route_node *route_table_get_next(struct route_table *table,
+struct route_node *(route_table_get_next)(struct route_table *table,
 					union prefixconstptr pu)
 {
 	const struct prefix *p = pu.p;

@@ -89,4 +89,8 @@ prefix_list_entry_lookup(struct prefix_list *plist, struct prefix *prefix,
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/plist.h"
+#endif
+
 #endif /* _QUAGGA_PLIST_H */

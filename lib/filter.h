@@ -278,4 +278,8 @@ void filter_cli_init(void);
 }
 #endif
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/filter.h"
+#endif
+
 #endif /* _ZEBRA_FILTER_H */

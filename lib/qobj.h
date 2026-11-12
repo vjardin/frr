@@ -127,11 +127,15 @@ void *qobj_get_typed(uint64_t id, const struct qobj_nodetype *type);
 	((struct structname *)qobj_get_typed((id), &qobj_t_##structname))
 
 #define QOBJ_ID(ptr) ((ptr)->qobj_node.nid)
+#if defined(_MSC_VER)
+#define QOBJ_ID_0SAFE(ptr) ((ptr) ? (ptr)->qobj_node.nid : 0ULL)
+#else
 #define QOBJ_ID_0SAFE(ptr)                                                     \
 	({                                                                     \
 		typeof(ptr) _ptr = (ptr);                                      \
 		_ptr ? _ptr->qobj_node.nid : 0ULL;                             \
 	})
+#endif
 
 void qobj_init(void);
 void qobj_finish(void);

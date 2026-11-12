@@ -578,7 +578,7 @@ static void fe_client_handle_native_msg(struct mgmt_fe_client *client,
 			session->client->cbs.edit_notify(client, client->user_data,
 							 session->client_id, msg->refer_id,
 							 session->user_ctx, msg->req_id, xpath,
-							 err_msg->error ?: -EINVAL,
+							 err_msg->error ? err_msg->error : -EINVAL,
 							 err_msg->errstr);
 			break;
 		case MGMT_MSG_CODE_GET_DATA:

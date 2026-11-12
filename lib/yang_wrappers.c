@@ -785,13 +785,13 @@ bool yang_dnode_get_empty(const struct lyd_node *dnode, const char *xpath_fmt,
 /*
  * Derived type: IP prefix.
  */
-void yang_str2prefix(const char *value, union prefixptr prefix)
+void (yang_str2prefix)(const char *value, union prefixptr prefix)
 {
 	(void)str2prefix(value, prefix.p);
 	apply_mask(prefix.p);
 }
 
-struct yang_data *yang_data_new_prefix(const char *xpath,
+struct yang_data *(yang_data_new_prefix)(const char *xpath,
 				       union prefixconstptr prefix)
 {
 	char value_str[PREFIX2STR_BUFFER];
@@ -817,7 +817,7 @@ void yang_dnode_get_prefix(struct prefix *prefix, const struct lyd_node *dnode,
 	(void)str2prefix(canon, prefix);
 }
 
-void yang_get_default_prefix(union prefixptr var, const char *xpath_fmt, ...)
+void (yang_get_default_prefix)(union prefixptr var, const char *xpath_fmt, ...)
 {
 	char xpath[XPATH_MAXLEN];
 	const char *value;
@@ -876,7 +876,7 @@ void yang_get_default_ipv4(struct in_addr *var, const char *xpath_fmt, ...)
 /*
  * Derived type: ipv4p.
  */
-void yang_str2ipv4p(const char *value, union prefixptr prefix)
+void (yang_str2ipv4p)(const char *value, union prefixptr prefix)
 {
 	struct prefix_ipv4 *prefix4 = prefix.p4;
 
@@ -884,7 +884,7 @@ void yang_str2ipv4p(const char *value, union prefixptr prefix)
 	apply_mask_ipv4(prefix4);
 }
 
-struct yang_data *yang_data_new_ipv4p(const char *xpath,
+struct yang_data *(yang_data_new_ipv4p)(const char *xpath,
 				      union prefixconstptr prefix)
 {
 	char value_str[PREFIX2STR_BUFFER];
@@ -893,7 +893,7 @@ struct yang_data *yang_data_new_ipv4p(const char *xpath,
 	return yang_data_new(xpath, value_str);
 }
 
-void yang_dnode_get_ipv4p(union prefixptr prefix, const struct lyd_node *dnode,
+void (yang_dnode_get_ipv4p)(union prefixptr prefix, const struct lyd_node *dnode,
 			  const char *xpath_fmt, ...)
 {
 	struct prefix_ipv4 *prefix4 = prefix.p4;
@@ -905,7 +905,7 @@ void yang_dnode_get_ipv4p(union prefixptr prefix, const struct lyd_node *dnode,
 	(void)str2prefix_ipv4(canon, prefix4);
 }
 
-void yang_get_default_ipv4p(union prefixptr var, const char *xpath_fmt, ...)
+void (yang_get_default_ipv4p)(union prefixptr var, const char *xpath_fmt, ...)
 {
 	char xpath[XPATH_MAXLEN];
 	const char *value;
@@ -964,7 +964,7 @@ void yang_get_default_ipv6(struct in6_addr *var, const char *xpath_fmt, ...)
 /*
  * Derived type: ipv6p.
  */
-void yang_str2ipv6p(const char *value, union prefixptr prefix)
+void (yang_str2ipv6p)(const char *value, union prefixptr prefix)
 {
 	struct prefix_ipv6 *prefix6 = prefix.p6;
 
@@ -972,7 +972,7 @@ void yang_str2ipv6p(const char *value, union prefixptr prefix)
 	apply_mask_ipv6(prefix6);
 }
 
-struct yang_data *yang_data_new_ipv6p(const char *xpath,
+struct yang_data *(yang_data_new_ipv6p)(const char *xpath,
 				      union prefixconstptr prefix)
 {
 	char value_str[PREFIX2STR_BUFFER];
@@ -981,7 +981,7 @@ struct yang_data *yang_data_new_ipv6p(const char *xpath,
 	return yang_data_new(xpath, value_str);
 }
 
-void yang_dnode_get_ipv6p(union prefixptr prefix, const struct lyd_node *dnode,
+void (yang_dnode_get_ipv6p)(union prefixptr prefix, const struct lyd_node *dnode,
 			  const char *xpath_fmt, ...)
 {
 	struct prefix_ipv6 *prefix6 = prefix.p6;
@@ -993,7 +993,7 @@ void yang_dnode_get_ipv6p(union prefixptr prefix, const struct lyd_node *dnode,
 	(void)str2prefix_ipv6(canon, prefix6);
 }
 
-void yang_get_default_ipv6p(union prefixptr var, const char *xpath_fmt, ...)
+void (yang_get_default_ipv6p)(union prefixptr var, const char *xpath_fmt, ...)
 {
 	char xpath[XPATH_MAXLEN];
 	const char *value;
@@ -1017,8 +1017,7 @@ void yang_str2ip(const char *value, struct ipaddr *ip)
 
 struct yang_data *yang_data_new_ip(const char *xpath, const struct ipaddr *addr)
 {
-	size_t sz = IS_IPADDR_V4(addr) ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
-	char value_str[sz];
+	char value_str[INET6_ADDRSTRLEN];
 
 	ipaddr2str(addr, value_str, sizeof(value_str));
 	return yang_data_new(xpath, value_str);
