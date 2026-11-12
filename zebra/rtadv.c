@@ -2275,6 +2275,9 @@ static int if_join_all_router(int sock, struct interface *ifp)
 	ret = setsockopt(sock, IPPROTO_IPV6, IPV6_JOIN_GROUP, (char *)&mreq,
 			 sizeof(mreq));
 
+	if (ret < 0 && errno == EADDRINUSE)
+		return 0;
+
 	if (ret < 0) {
 		flog_err_sys(EC_LIB_SOCKET,
 			     "%s(%u): Failed to join group, socket %u error %s",
