@@ -15,8 +15,6 @@
 #include "lib/log.h"
 #include "lib/memory.h"
 
-struct frr_signal_t sigs[] = {};
-
 struct event_loop *master;
 
 void func1(int *arg);
@@ -32,7 +30,7 @@ void func1(int *arg)
 static void func2(size_t depth, int *arg)
 {
 	/* variable stack frame size */
-	int buf[depth];
+	FRR_VLA(int, buf, depth);
 	for (size_t i = 0; i < depth; i++)
 		buf[i] = arg[i] + 1;
 	if (depth > 0)
@@ -57,7 +55,7 @@ static void threadfunc(struct event *event)
 int main(void)
 {
 	master = event_master_create(NULL);
-	signal_init(master, array_size(sigs), sigs);
+	signal_init(master, 0, NULL);
 
 	zlog_aux_init("NONE: ", LOG_DEBUG);
 

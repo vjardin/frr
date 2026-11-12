@@ -31,7 +31,7 @@ struct event_loop *master;
  */
 struct srcdest_rnode {
 	/* must be first in structure for casting to/from route_node */
-	ROUTE_NODE_FIELDS;
+	ROUTE_NODE_FIELDS
 
 	struct route_table *src_table;
 };
@@ -424,7 +424,7 @@ static void get_dest_prefix(struct prng *prng, struct prefix_ipv6 *p)
 
 static void run_srcdest_next_test(void)
 {
-	const int NEXT_ARR_MAX = 8;
+	enum { NEXT_ARR_MAX = 8 };
 	struct test_state *test = test_state_new();
 	struct prng *prng = prng_new(0);
 	int i, idx;

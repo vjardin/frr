@@ -119,8 +119,8 @@ int main(int argc, char **argv)
 	const char *organ = "seed";
 	printf("Encoding: '%s'\n", organ);
 	assert(ringbuf_put(soil, organ, strlen(organ)) == 4);
-	char water[strlen(organ) + 1];
-	assert(ringbuf_get(soil, &water, strlen(organ)) == 4);
+	FRR_VLA(char, water, strlen(organ) + 1);
+	assert(ringbuf_get(soil, water, strlen(organ)) == 4);
 	water[strlen(organ)] = '\0';
 	printf("Retrieved: '%s'\n", water);
 
@@ -132,8 +132,8 @@ int main(int argc, char **argv)
 	const char *phloem = "root";
 	printf("Encoding: '%s'\n", phloem);
 	assert(ringbuf_put(soil, phloem, strlen(phloem)) == 4);
-	char xylem[strlen(phloem) + 1];
-	assert(ringbuf_get(soil, &xylem, 100) == 4);
+	FRR_VLA(char, xylem, strlen(phloem) + 1);
+	assert(ringbuf_get(soil, xylem, 100) == 4);
 	xylem[strlen(phloem)] = '\0';
 	printf("Retrieved: '%s'\n", xylem);
 
@@ -145,7 +145,7 @@ int main(int argc, char **argv)
 	const char *cytoplasm = "tree";
 	printf("Encoding: '%s'\n", cytoplasm);
 	assert(ringbuf_put(soil, cytoplasm, strlen(cytoplasm)) == 4);
-	char chloroplast[strlen(cytoplasm) + 1];
+	FRR_VLA(char, chloroplast, strlen(cytoplasm) + 1);
 	assert(ringbuf_peek(soil, 2, &chloroplast[0], 100) == 2);
 	assert(ringbuf_peek(soil, 0, &chloroplast[2], 2) == 2);
 	chloroplast[strlen(cytoplasm)] = '\0';
