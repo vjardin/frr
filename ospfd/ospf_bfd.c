@@ -503,10 +503,11 @@ DEFUN (ip_ospf_bfd,
 }
 
 #if HAVE_BFDD > 0
-DEFUN_HIDDEN(
+#define OSPF_BFD_PARAM_DEFUN DEFUN_HIDDEN
 #else
-DEFUN(
+#define OSPF_BFD_PARAM_DEFUN DEFUN
 #endif /* HAVE_BFDD */
+OSPF_BFD_PARAM_DEFUN(
        ip_ospf_bfd_param,
        ip_ospf_bfd_param_cmd,
        "ip ospf bfd (2-255) (50-60000) (50-60000) [quick]",
@@ -586,22 +587,25 @@ DEFUN (no_ip_ospf_bfd_prof,
 	return CMD_SUCCESS;
 }
 
+#if HAVE_BFDD > 0
+#define NO_IP_OSPF_BFD_CMD "no ip ospf bfd [quick]"
+#define NO_IP_OSPF_BFD_PARAM_HELP
+#else
+#define NO_IP_OSPF_BFD_CMD "no ip ospf bfd [(2-255) (50-60000) (50-60000)] [quick]"
+#define NO_IP_OSPF_BFD_PARAM_HELP                                              \
+       "Detect Multiplier\n"                                                   \
+       "Required min receive interval\n"                                       \
+       "Desired min transmit interval\n"
+#endif /* HAVE_BFDD */
+
 DEFUN (no_ip_ospf_bfd,
        no_ip_ospf_bfd_cmd,
-#if HAVE_BFDD > 0
-       "no ip ospf bfd [quick]",
-#else
-       "no ip ospf bfd [(2-255) (50-60000) (50-60000)] [quick]",
-#endif /* HAVE_BFDD */
+       NO_IP_OSPF_BFD_CMD,
        NO_STR
        "IP Information\n"
        "OSPF interface commands\n"
        "Disables BFD support\n"
-#if HAVE_BFDD == 0
-       "Detect Multiplier\n"
-       "Required min receive interval\n"
-       "Desired min transmit interval\n"
-#endif /* !HAVE_BFDD */
+       NO_IP_OSPF_BFD_PARAM_HELP
        "Quick neighbor establishment mode\n"
 )
 {

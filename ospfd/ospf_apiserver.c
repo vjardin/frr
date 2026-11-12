@@ -267,8 +267,8 @@ void ospf_apiserver_event(enum ospf_apiserver_event event, int fd,
 {
 	switch (event) {
 	case OSPF_APISERVER_ACCEPT:
-		(void)event_add_read(master, ospf_apiserver_accept, apiserv, fd,
-				     NULL);
+		event_add_read(master, ospf_apiserver_accept, apiserv, fd,
+			       NULL);
 		break;
 	case OSPF_APISERVER_SYNC_READ:
 		event_add_read(master, ospf_apiserver_read, apiserv, fd,
