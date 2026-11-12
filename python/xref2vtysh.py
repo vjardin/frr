@@ -199,6 +199,7 @@ class CommandEntry:
 
         defun_file = os.path.relpath(self._spec["defun"]["file"], frr_top_src)
         defun_path = pathlib.Path(defun_file)
+        defun_file = defun_path.as_posix()
 
         if defun_path.parts[0] != "lib":
             if "." not in path.name:
@@ -386,8 +387,8 @@ class CommandEntry:
             return []
 
         ofd.write("\n")
-        ofd.write(f"static struct cmd_token ctkn_{node}[];\n")
-        ofd.write(f"static struct graph_node gn_{node}[];\n")
+        ofd.write(f"static struct cmd_token ctkn_{node}[{len(graph)}];\n")
+        ofd.write(f"static struct graph_node gn_{node}[{len(graph)}];\n")
         ofd.write("\n")
 
         vectors = []
@@ -443,9 +444,9 @@ class CommandEntry:
 
         for i, next_prev in enumerate(vectors):
             n, p = next_prev
-            items = ", ".join(f"&gn_{node}[{i}]" for i in n)
+            items = ", ".join(f"&gn_{node}[{i}]" for i in n) or "NULL"
             ofd.write(f"MAKE_VECTOR(gn_{node}_{i}_next, {len(n)}, {items});\n")
-            items = ", ".join(f"&gn_{node}[{i}]" for i in p)
+            items = ", ".join(f"&gn_{node}[{i}]" for i in p) or "NULL"
             ofd.write(f"MAKE_VECTOR(gn_{node}_{i}_prev, {len(p)}, {items});\n")
 
         ofd.write(f"\nstatic struct graph_node gn_{node}[] = {'{'}\n")
@@ -535,15 +536,27 @@ class CommandEntry:
 def main():
     argp = argparse.ArgumentParser(description="FRR xref to vtysh defs")
     argp.add_argument(
-        "xreffile", metavar="XREFFILE", type=str, help=".xref file to read"
+        "xreffile",
+        metavar="XREFFILE",
+        type=str,
+        nargs="+",
+        help=".xref file(s) to read",
     )
+    argp.add_argument("-o", metavar="OUTPUT", type=str, help="write vtysh_cmd.c here")
     argp.add_argument("-Werror", action="store_const", const=True)
     args = argp.parse_args()
 
-    with open(args.xreffile, "r") as fd:
-        data = json.load(fd)
+    data = {"cli": {}}
+    for xreffile in args.xreffile:
+        with open(xreffile, "r") as fd:
+            for cmd, items in json.load(fd).get("cli", {}).items():
+                data["cli"].setdefault(cmd, {}).update(items)
 
-    CommandEntry.run(data, sys.stdout)
+    if args.o:
+        with open(args.o, "w") as ofd:
+            CommandEntry.run(data, [ofd])
+    else:
+        CommandEntry.run(data, [sys.stdout])
 
     if args.Werror and CommandEntry.warn_counter:
         sys.exit(1)
