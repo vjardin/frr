@@ -515,6 +515,20 @@ function(frr_daemon name)
 	set(FRR_DAEMONS ${FRR_DAEMONS} PARENT_SCOPE)
 endfunction()
 
+function(frr_program name)
+	cmake_parse_arguments(_p "" "" "SOURCES;LIBS" ${ARGN})
+	add_executable(${name}
+		${_p_SOURCES}
+		"${FRR_BLD}/eventlog.rc"
+		$<TARGET_OBJECTS:frr>
+		$<TARGET_OBJECTS:frr_win32>
+	)
+	add_dependencies(${name} frr_genheaders frr_lib_clippy)
+	frr_target_setup(${name} "${FRR_SRC}/lib/win32/assert")
+	target_link_libraries(${name} PRIVATE
+		json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}" ${FRR_LUA_LIBS} ${_p_LIBS})
+endfunction()
+
 # bgpd
 
 set(BGPD_SOURCES
@@ -1053,6 +1067,21 @@ frr_daemon(sharpd
 		sharpd/sharp_vty.c
 )
 
+# ospfclient
+
+add_library(frrospfapiclient STATIC ospfclient/ospf_apiclient.c)
+add_dependencies(frrospfapiclient frr_genheaders frr_lib_clippy)
+frr_target_setup(frrospfapiclient "${FRR_SRC}/lib/win32/assert")
+target_link_libraries(frrospfapiclient PRIVATE json-c::json-c PCRE2::POSIX)
+frr_program(ospfclient
+	SOURCES
+		ospfclient/ospfclient.c
+		ospfd/ospf_api.c
+		ospfd/ospf_dump_api.c
+	LIBS
+		frrospfapiclient
+)
+
 frr_daemon(watchfrr
 	SOURCES
 		watchfrr/watchfrr.c
@@ -1266,6 +1295,7 @@ install(PROGRAMS "${FRR_BLD}/watchfrr.cmd" DESTINATION sbin)
 configure_file(tools/frrservice.cmd.in "${FRR_BLD}/frrservice.cmd" @ONLY NEWLINE_STYLE CRLF)
 install(PROGRAMS "${FRR_BLD}/frrservice.cmd" DESTINATION sbin)
 install(TARGETS vtysh RUNTIME DESTINATION bin)
+install(TARGETS ospfclient RUNTIME DESTINATION bin)
 install(FILES "$<TARGET_PDB_FILE:vtysh>" DESTINATION bin OPTIONAL)
 
 install(CODE "
