@@ -206,7 +206,7 @@ void zlog_backtrace_sigsafe(int priority, void *program_counter)
 		return;
 
 	bprintfrr(&fb, "Backtrace for %d stack frames:", size);
-	zlog_sigsafe(fb.pos, fb.buf - fb.pos);
+	zlog_sigsafe(fb.buf, fb.pos - fb.buf);
 
 	bt = backtrace_symbols(array, size);
 
