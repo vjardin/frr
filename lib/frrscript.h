@@ -345,6 +345,10 @@ void *frrscript_get_result(struct frrscript *fs, const char *function_name,
 }
 #endif /* __cplusplus */
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/frrscript.h"
+#endif
+
 #endif /* HAVE_SCRIPTING */
 
 #endif /* __FRRSCRIPT_H__ */

@@ -18,6 +18,8 @@
 #include "prefix.h"
 #include "vrf.h"
 #include "xref.h"
+#include "frrscript.h"
+#include "hash.h"
 
 /* MSVC ignores __attribute__((packed)): check that the packed structs */
 static_assert(sizeof(struct ethaddr) == ETH_ALEN, "struct ethaddr has padding");
@@ -34,6 +36,42 @@ PFX_SAME_OFFSET(prefix_rd, val);
 PFX_SAME_OFFSET(prefix_eth, eth_addr);
 PFX_SAME_OFFSET(prefix_evpn, prefix);
 PFX_SAME_OFFSET(prefix_fs, prefix);
+
+#ifdef HAVE_SCRIPTING
+struct lua_function_state *_frr_win_frrscript_lfs(struct frrscript *fs, const char *f)
+{
+	struct lua_function_state lookup = { .name = f };
+	struct lua_function_state *lfs;
+
+	lfs = hash_lookup(fs->lua_function_hash, &lookup);
+	if (!lfs) {
+		zlog_err("frrscript: '%s.lua': '%s': tried to call this function but it was not loaded",
+			 fs->name, f);
+		return NULL;
+	}
+	lua_settop(lfs->L, 0);
+	lua_getglobal(lfs->L, f);
+	return lfs;
+}
+
+int _frr_win_frrscript_failed(struct frrscript *fs, const char *f)
+{
+	zlog_err("frrscript: '%s.lua': '%s': this function called but returned non-zero exit code. No variables modified.",
+		 fs->name, f);
+	return 1;
+}
+
+bool _frr_win_frrscript_field(struct lua_function_state *lfs, const char *name)
+{
+	lua_getfield(lfs->L, 1, name);
+	if (lua_isnil(lfs->L, 2)) {
+		lua_pop(lfs->L, 1);
+		assert(lua_gettop(lfs->L) == 1);
+		return false;
+	}
+	return true;
+}
+#endif /* HAVE_SCRIPTING */
 
 /*
  * lib/xref.c: the last directory and the file name of a path that has '\\'
