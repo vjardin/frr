@@ -45,7 +45,7 @@ static struct yang_module_embed embed = {
 \t.format = %s,
 };
 
-static void embed_register(void) __attribute__((_CONSTRUCTOR(2000)));
+FRR_CONSTRUCTOR(2000, embed_register);
 static void embed_register(void)
 {
 \tyang_module_embed(&embed);

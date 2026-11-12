@@ -83,7 +83,7 @@ def wrdiff(filename, buf, reffiles=[]):
     newname = "%s.new-%d" % (filename, os.getpid())
     with open(newname, "w") as out:
         out.write(buf)
-    os.rename(newname, filename)
+    os.replace(newname, filename)
 
 
 class CmdAttr(_IntFlag):
