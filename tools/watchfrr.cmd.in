@@ -1,0 +1,192 @@
+@echo off
+rem SPDX-License-Identifier: GPL-2.0-or-later
+rem
+rem This is NOT a startup script!
+rem This is the Windows counterpart of tools/watchfrr.sh:
+rem the start / stop / restart command handler that
+rem watchfrr runs, with its -s, -k and -r options, for the daemons it
+rem watches.
+rem
+rem     watchfrr.cmd start|stop|restart <daemon>|all
+rem
+rem It is installed next to the daemons, which is where it looks for them.
+rem
+rem The file "daemons" of the configuration directory is the one of the
+rem other platforms. It says which daemons "all" stands for, on top of
+rem mgmtd, zebra and staticd, and gives the daemons their options:
+rem
+rem     bgpd=yes
+rem     ospfd=yes
+rem     zebra_options="-A 127.0.0.1"
+rem     bgpd_options="-A 127.0.0.1 -f C:/frr/bgpd.conf"
+rem     frr_global_options="--log file:C:/frr/frr.log"
+rem
+rem A daemon without options there gets "-A 127.0.0.1". When watchfrr
+rem runs with -N, the daemons get the same -N and the file is read from
+rem that subdirectory.
+rem
+rem With an integrated configuration, frr.conf in that directory, vtysh -b
+rem applies it once all the daemons have started, or to the one daemon
+rem started, as frrcommon.sh does elsewhere. A daemon started with
+rem "start /b" is not ready when it returns, unlike one started with -d on
+rem the other platforms: vtysh waits for the vty sockets of the daemons.
+rem
+rem Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "DAEMONS=mgmtd zebra bfdd bgpd ripd ripngd ospfd ospf6d isisd babeld eigrpd sharpd staticd fabricd"
+set "STOP_WAIT=10"
+
+rem how many seconds the daemons get to open their vty socket
+set "READY_WAIT=30"
+
+set "SYS=%SystemRoot%\System32"
+
+set "B_PATH=%~dp0"
+set "C_PATH=@FRR_SYSCONFDIR_NATIVE@"
+set "V_PATH=@FRR_RUNSTATEDIR_NATIVE@"
+
+set "VTYSH=%~dp0..\bin\vtysh.exe"
+if exist "%~dp0vtysh.exe" set "VTYSH=%~dp0vtysh.exe"
+
+set "nsopt="
+if defined FRR_PATHSPACE (
+	set "C_PATH=%C_PATH%\%FRR_PATHSPACE%"
+	set "V_PATH=%V_PATH%\%FRR_PATHSPACE%"
+	set "nsopt=-N %FRR_PATHSPACE%"
+)
+
+if exist "%C_PATH%\daemons" (
+	for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%C_PATH%\daemons") do set "%%a=%%~b"
+)
+
+set "action=%~1"
+set "target=%~2"
+if not defined target goto :usage
+if /i "%action%"=="start" goto :do_start
+if /i "%action%"=="stop" goto :do_stop
+if /i "%action%"=="restart" goto :do_restart
+
+:usage
+echo Usage: %~nx0 start^|stop^|restart ^<daemon^>^|all 1>&2
+exit /b 1
+
+:do_restart
+if /i "%target%"=="all" (call :all_stop) else (call :daemon_stop %target%)
+
+:do_start
+if /i "%target%"=="all" goto :do_start_all
+call :daemon_start %target% || exit /b 1
+call :vtysh_b %target%
+exit /b 0
+:do_start_all
+call :all_start
+call :vtysh_b
+exit /b 0
+
+:do_stop
+if /i "%target%"=="all" (call :all_stop) else (call :daemon_stop %target%)
+exit /b %errorlevel%
+
+:all_start
+for %%d in (%DAEMONS%) do (
+	call :is_enabled %%d && if exist "%B_PATH%%%d.exe" (
+		call :daemon_start %%d
+		if /i "%%d"=="mgmtd" "%SYS%\ping.exe" -n 3 127.0.0.1 >NUL
+		if /i "%%d"=="zebra" "%SYS%\ping.exe" -n 3 127.0.0.1 >NUL
+	)
+)
+exit /b 0
+
+:all_stop
+set "reversed="
+for %%d in (%DAEMONS%) do set "reversed=%%d !reversed!"
+for %%d in (%reversed%) do call :daemon_stop %%d
+exit /b 0
+
+:is_enabled
+if /i "%~1"=="mgmtd" exit /b 0
+if /i "%~1"=="zebra" exit /b 0
+if /i "%~1"=="staticd" exit /b 0
+set "cfg=!%~1!"
+if not defined cfg exit /b 1
+if /i "%cfg%"=="no" exit /b 1
+if "%cfg%"=="0" exit /b 1
+exit /b 0
+
+:daemon_start
+if not exist "%B_PATH%%~1.exe" (
+	echo %~nx0: "!B_PATH!%~1.exe" does not exist 1>&2
+	exit /b 1
+)
+call :pid_of %~1 && (
+	echo %~nx0: %~1 already runs 1>&2
+	exit /b 0
+)
+if not exist "%V_PATH%" mkdir "%V_PATH%"
+if exist "%V_PATH%\%~1.vty" del /q "%V_PATH%\%~1.vty" >NUL 2>&1
+set "args=-A 127.0.0.1"
+if defined %~1_options set "args=!%~1_options!"
+start "" /b "%B_PATH%%~1.exe" %nsopt% %frr_global_options% %args%
+exit /b 0
+
+:pid_of
+set "pid="
+if not exist "%V_PATH%\%~1.pid" exit /b 1
+set /p pid=<"%V_PATH%\%~1.pid"
+if not defined pid exit /b 1
+call :is_running %pid% %~1
+exit /b %errorlevel%
+
+:vtysh_b
+if /i "%~1"=="watchfrr" exit /b 0
+if not exist "%C_PATH%\frr.conf" exit /b 0
+if not exist "%VTYSH%" (
+	echo %~nx0: no vtysh, "!C_PATH!\frr.conf" not applied 1>&2
+	exit /b 0
+)
+set "wanted=%~1"
+if not defined wanted (
+	for %%d in (%DAEMONS%) do (
+		call :is_enabled %%d && if exist "%B_PATH%%%d.exe" set "wanted=!wanted! %%d"
+	)
+)
+for %%d in (%wanted%) do call :wait_vty %%d
+if "%~1"=="" (
+	"%VTYSH%" %nsopt% -b
+) else (
+	"%VTYSH%" %nsopt% -b -d %~1
+)
+exit /b 0
+
+rem wait_vty <daemon>: up to READY_WAIT seconds
+:wait_vty
+for /l %%i in (1,1,%READY_WAIT%) do (
+	if exist "%V_PATH%\%~1.vty" exit /b 0
+	"%SYS%\ping.exe" -n 2 127.0.0.1 >NUL
+)
+echo %~nx0: %~1 has no vty socket after %READY_WAIT% seconds 1>&2
+exit /b 1
+
+:daemon_stop
+call :pid_of %~1 || exit /b 0
+call :sigterm %pid% || goto :daemon_kill
+set /a waited=0
+:daemon_wait
+call :is_running %pid% %~1 || exit /b 0
+set /a waited+=1
+if %waited% gtr %STOP_WAIT% goto :daemon_kill
+"%SYS%\ping.exe" -n 2 127.0.0.1 >NUL
+goto :daemon_wait
+:daemon_kill
+"%SYS%\taskkill.exe" /f /pid %pid% >NUL 2>&1
+exit /b 0
+
+:is_running
+"%SYS%\tasklist.exe" /nh /fi "PID eq %~1" /fi "IMAGENAME eq %~2.exe" 2>NUL | "%SYS%\findstr.exe" /b /i /c:"%~2.exe" >NUL
+exit /b %errorlevel%
+
+:sigterm
+"%SYS%\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command "foreach ($ns in 'Global', 'Local') { try { $ev = [System.Threading.EventWaitHandle]::OpenExisting($ns + '\FRR-SIGTERM-%~1'); [void]$ev.Set(); exit 0 } catch { } }; exit 1" >NUL 2>&1
+exit /b %errorlevel%

@@ -128,7 +128,7 @@ set(e_moduledir "${CMAKE_INSTALL_PREFIX}/lib/frr/modules")
 set(e_scriptdir "${FRR_STATEDIR}/etc/scripts")
 set(e_frr_sysconfdir "${FRR_STATEDIR}/etc")
 set(e_vtysh_bin "${CMAKE_INSTALL_PREFIX}/bin/vtysh.exe")
-set(e_watchfrr_sh "${CMAKE_INSTALL_PREFIX}/sbin/watchfrr.sh")
+set(e_watchfrr_sh "\\\"${CMAKE_INSTALL_PREFIX}/sbin/watchfrr.cmd\\\"")
 configure_file(lib/config_paths.h.in "${FRR_BLD}/lib/config_paths.h" @ONLY)
 
 set(PACKAGE_NAME "frr")
@@ -1075,6 +1075,11 @@ if(FRR_RUNTIME_DLLS)
 endif()
 
 install(TARGETS ${FRR_VTYSH_DAEMONS} RUNTIME DESTINATION sbin)
+
+file(TO_NATIVE_PATH "${FRR_STATEDIR}/etc" FRR_SYSCONFDIR_NATIVE)
+file(TO_NATIVE_PATH "${FRR_STATEDIR}/run" FRR_RUNSTATEDIR_NATIVE)
+configure_file(tools/watchfrr.cmd.in "${FRR_BLD}/watchfrr.cmd" @ONLY NEWLINE_STYLE CRLF)
+install(PROGRAMS "${FRR_BLD}/watchfrr.cmd" DESTINATION sbin)
 install(TARGETS vtysh RUNTIME DESTINATION bin)
 
 install(CODE "
