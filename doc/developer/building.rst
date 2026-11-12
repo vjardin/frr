@@ -33,6 +33,7 @@ Building FRR
    building-frr-for-ubuntu2004
    building-frr-for-ubuntu2204
    building-frr-for-ubuntu2404
+   building-frr-for-windows
    building-docker
    cross-compiling
    building-doc
