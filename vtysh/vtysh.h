@@ -180,4 +180,8 @@ struct vtysh_client {
 
 extern struct vtysh_client vtysh_client[22];
 
+#ifdef _WIN32
+extern bool vtysh_win32_execute(const char *command, char *argv[]);
+#endif
+
 #endif /* VTYSH_H */
