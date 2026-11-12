@@ -1288,6 +1288,9 @@ static struct rlfa *rlfa_lookup(struct isis_spftree *spftree, union prefixconstp
 	s.prefix = *pu.p;
 	return rlfa_tree_find(&spftree->lfa.remote.rlfas, &s);
 }
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define rlfa_lookup(a0, a1) rlfa_lookup(a0, PFX_CPTR(a1))
+#endif
 
 static void isis_area_verify_routes_cb(struct event *event)
 {

@@ -257,18 +257,21 @@ static char *state_paths[] = {
 };
 
 /* clang-format off */
-FRR_DAEMON_INFO(
 #ifdef FABRICD
-		fabricd, OPEN_FABRIC,
-
-	.vty_port = FABRICD_VTY_PORT,
-	.proghelp = "Implementation of the OpenFabric routing protocol.",
+#define ISIS_DAEMON_INFO(...)                                                  \
+	FRR_DAEMON_INFO(fabricd, OPEN_FABRIC,                                  \
+		.vty_port = FABRICD_VTY_PORT,                                  \
+		.proghelp = "Implementation of the OpenFabric routing protocol.", \
+		__VA_ARGS__)
 #else
-		isisd, ISIS,
-
-	.vty_port = ISISD_VTY_PORT,
-	.proghelp = "Implementation of the IS-IS routing protocol.",
+#define ISIS_DAEMON_INFO(...)                                                  \
+	FRR_DAEMON_INFO(isisd, ISIS,                                           \
+		.vty_port = ISISD_VTY_PORT,                                    \
+		.proghelp = "Implementation of the IS-IS routing protocol.",   \
+		__VA_ARGS__)
 #endif
+
+ISIS_DAEMON_INFO(
 	.copyright = "Copyright (c) 2001-2002 Sampo Saaristo, Ofer Wald and Hannes Gredler",
 
 	.signals = isisd_signals,

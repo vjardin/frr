@@ -405,8 +405,8 @@ void isis_sr_cfg_prefix_del(struct sr_prefix_cfg *pcfg)
  *
  * @return	  Configured Prefix-SID structure if found, NULL otherwise
  */
-struct sr_prefix_cfg *isis_sr_cfg_prefix_find(struct isis_area *area, union prefixconstptr prefix,
-					      uint8_t algorithm)
+struct sr_prefix_cfg *(isis_sr_cfg_prefix_find)(struct isis_area *area, union prefixconstptr prefix,
+						uint8_t algorithm)
 {
 	struct sr_prefix_cfg pcfg = {};
 
@@ -1107,17 +1107,13 @@ static void show_node(struct vty *vty, struct isis_area *area, int level, uint8_
 DEFUN(show_sr_node, show_sr_node_cmd,
       "show " PROTO_NAME
       " segment-routing node"
-#ifndef FABRICD
-      " [algorithm [(128-255)]]"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR(" [algorithm [(128-255)]]")
       ,
       SHOW_STR PROTO_HELP
       "Segment-Routing\n"
       "Segment-Routing node\n"
-#ifndef FABRICD
-      "Show Flex-algo nodes\n"
-      "Algorithm number\n"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR("Show Flex-algo nodes\n"
+		     "Algorithm number\n")
 )
 {
 	struct isis_area *area;
