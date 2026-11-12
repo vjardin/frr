@@ -407,7 +407,11 @@ int main(int argc, char **argv, char **env)
 	int dryrun = 0;
 	int boot_flag = 0;
 	bool ts_flag = false;
+#ifdef _WIN32
+	bool no_fork = true; /* no fork() */
+#else
 	bool no_fork = false;
+#endif
 	const char *daemon_name = NULL;
 	const char *inputfile = NULL;
 	struct cmd_rec {
