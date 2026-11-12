@@ -3295,11 +3295,61 @@ static void dl_seterr(const char *what)
 		       NULL);
 }
 
+/* Modules */
+#define BUILTIN_MODULES_MAX 32
+
+static struct builtin_module {
+	char name[64];
+	void *frr_module;
+} builtin_modules[BUILTIN_MODULES_MAX];
+static int builtin_module_count;
+
+void frr_win_module_builtin(const char *name, void *frr_module)
+{
+	struct builtin_module *bm;
+
+	if (builtin_module_count >= BUILTIN_MODULES_MAX)
+		return;
+	bm = &builtin_modules[builtin_module_count++];
+	strncpy_s(bm->name, sizeof(bm->name), name, _TRUNCATE);
+	bm->frr_module = frr_module;
+}
+
+static struct builtin_module *builtin_module_get(const char *file)
+{
+	const char *base = file, *p;
+	size_t len;
+	int i;
+
+	for (p = file; *p; p++)
+		if (*p == '/' || *p == '\\')
+			base = p + 1;
+	len = strlen(base);
+	if (len > 3 && !_stricmp(base + len - 3, ".so"))
+		len -= 3;
+
+	for (i = 0; i < builtin_module_count; i++)
+		if (strlen(builtin_modules[i].name) == len &&
+		    !_strnicmp(builtin_modules[i].name, base, len))
+			return &builtin_modules[i];
+	return NULL;
+}
+
+static bool builtin_module_handle(void *handle)
+{
+	return (struct builtin_module *)handle >= builtin_modules &&
+	       (struct builtin_module *)handle < builtin_modules + builtin_module_count;
+}
+
 void *dlopen(const char *file, int mode)
 {
+	struct builtin_module *bm;
 	HMODULE h;
 
 	(void)mode;
+	if (file && (bm = builtin_module_get(file)))
+		return bm;
+
 	h = file ? LoadLibraryA(file) : GetModuleHandleA(NULL);
 	if (!h)
 		dl_seterr(file ? file : "(self)");
@@ -3308,9 +3358,16 @@ void *dlopen(const char *file, int mode)
 
 void *dlsym(void *handle, const char *name)
 {
-	FARPROC p = GetProcAddress(handle ? handle : GetModuleHandleA(NULL),
-				   name);
+	FARPROC p;
 
+	if (builtin_module_handle(handle)) {
+		if (!strcmp(name, "frr_module"))
+			return ((struct builtin_module *)handle)->frr_module;
+		dl_seterr(name);
+		return NULL;
+	}
+
+	p = GetProcAddress(handle ? handle : GetModuleHandleA(NULL), name);
 	if (!p)
 		dl_seterr(name);
 	return (void *)p;
@@ -3318,6 +3375,8 @@ void *dlsym(void *handle, const char *name)
 
 int dlclose(void *handle)
 {
+	if (builtin_module_handle(handle))
+		return 0;
 	return FreeLibrary(handle) ? 0 : -1;
 }
 

@@ -732,6 +732,8 @@ struct pollfd {
 extern SOCKET frr_win_fd2sock(int fd);
 extern int frr_win_sock2fd(SOCKET s);
 extern SOCKET frr_win_fd_detach(int fd);
+
+extern void frr_win_module_builtin(const char *name, void *frr_module);
 extern int frr_win_select(int nfds, fd_set *rd, fd_set *wr, fd_set *ex, struct timeval *tv);
 extern int frr_win_is_socket(int fd);
 

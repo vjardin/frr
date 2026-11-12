@@ -1062,6 +1062,35 @@ frr_daemon(watchfrr
 		watchfrr/watchfrr_vty.c
 )
 
+function(frr_module daemon name)
+	cmake_parse_arguments(_m "" "" "SOURCES;CLIPPY;LIB_SOURCES;LIBS" ${ARGN})
+	set(_id "${daemon}_${name}")
+	set(_reg "${FRR_BLD}/modules/${_id}.c")
+	file(CONFIGURE OUTPUT "${_reg}" CONTENT [=[
+#include <zebra.h>
+
+extern struct frrmod_runtime *frr_module_@_id@;
+
+FRR_CONSTRUCTOR(1100, frr_win_builtin_@_id@);
+static void frr_win_builtin_@_id@(void)
+{
+	frr_win_module_builtin("@_id@", &frr_module_@_id@);
+}
+]=] @ONLY)
+	set_source_files_properties(${_m_SOURCES} PROPERTIES COMPILE_DEFINITIONS
+		"_frrmod_this_module=_frrmod_this_module_${_id};frr_module=frr_module_${_id}")
+	frr_clippy(_clippy ${_m_CLIPPY})
+	add_custom_target(${_id}_clippy DEPENDS ${_clippy})
+	add_dependencies(${daemon} ${_id}_clippy)
+	target_sources(${daemon} PRIVATE ${_m_SOURCES} ${_m_LIB_SOURCES} "${_reg}")
+	target_link_libraries(${daemon} PRIVATE ${_m_LIBS})
+	set(FRR_MODULES ${FRR_MODULES} ${_id} PARENT_SCOPE)
+endfunction()
+
+set(FRR_MODULES)
+
+message(STATUS "Modules: ${FRR_MODULES}")
+
 set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
 set(FRR_XREFS)
 foreach(_daemon ${FRR_VTYSH_DAEMONS})
