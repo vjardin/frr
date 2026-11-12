@@ -221,6 +221,8 @@ int frr_win_strerror_r(int errnum, char *buf, size_t buflen)
 static SOCKET fd_sock[FD_TABLE_SIZE];
 static bool fd_nonblock[FD_TABLE_SIZE];
 
+static bool fd_adopted[FD_TABLE_SIZE];
+
 static bool fd_icmp6[FD_TABLE_SIZE];
 static struct icmp6_filter *fd_icmp6_filter[FD_TABLE_SIZE];
 
@@ -273,6 +275,7 @@ static void fd_release(int fd)
 		rs_helper_del(fd, 0);
 	fd_sock[fd] = 0;
 	fd_nonblock[fd] = false;
+	fd_adopted[fd] = false;
 	fd_icmp6[fd] = false;
 	free(fd_icmp6_filter[fd]);
 	fd_icmp6_filter[fd] = NULL;
@@ -1350,10 +1353,41 @@ int frr_win_close(int fd)
 	SOCKET s = frr_win_fd2sock(fd);
 
 	if (s != INVALID_SOCKET) {
+		bool adopted = fd_adopted[fd];
+
 		fd_release(fd);
-		closesocket(s);
+		if (!adopted)
+			closesocket(s);
 	}
 	return _close(fd);
+}
+
+int frr_win_fd_adopt(SOCKET s)
+{
+	int fd = frr_win_sock2fd(s);
+
+	if (fd >= 0)
+		return fd;
+
+	fd = _open("NUL", _O_RDWR | _O_BINARY | _O_NOINHERIT);
+	if (fd < 0 || fd >= FD_TABLE_SIZE) {
+		if (fd >= 0)
+			_close(fd);
+		errno = EMFILE;
+		return -1;
+	}
+	fd_nonblock[fd] = false;
+	fd_adopted[fd] = true;
+	fd_sock[fd] = s;
+	return fd;
+}
+
+void frr_win_fd_unadopt(int fd)
+{
+	if (fd < 0 || fd >= FD_TABLE_SIZE || !fd_adopted[fd])
+		return;
+	fd_release(fd);
+	_close(fd);
 }
 
 SOCKET frr_win_fd_detach(int fd)
