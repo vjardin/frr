@@ -584,7 +584,7 @@ reswitch:	switch (ch) {
 			/* "inf" */
 			if (!is_digit(*cp) && *cp != '.')
 				flags &= ~ZEROPAD;
-			size = strlen(buf);
+			size = strlen(cp);
 			break;
 #endif
 		case 'm':
