@@ -304,7 +304,11 @@ static pid_t run_background(char *shell_cmd)
 {
 	pid_t child;
 
+#ifdef _WIN32
+	switch (child = frr_win_spawn_shell(shell_cmd)) {
+#else
 	switch (child = fork()) {
+#endif
 	case -1:
 		flog_err_sys(EC_LIB_SYSTEM_CALL,
 			     "fork failed, cannot run command [%s]: %s",
@@ -499,11 +503,12 @@ static int run_job(struct restart_info *restart, const char *cmdtype,
 	gettimeofday(&restart->time, NULL);
 	restart->kills = 0;
 	{
-		char cmd[strlen(command) + strlen(restart->name) + 1];
+		size_t cmd_len = strlen(command) + strlen(restart->name) + 1;
+		FRR_VLA(char, cmd, cmd_len);
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
 		/* user supplied command string has a %s for the daemon name */
-		snprintf(cmd, sizeof(cmd), command, restart->name);
+		snprintf(cmd, cmd_len, command, restart->name);
 #pragma GCC diagnostic pop
 
 		if (gs.collect_core)
