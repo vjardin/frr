@@ -3320,10 +3320,10 @@ void ospf_maxage_lsa_remover(struct event *event)
 			if (IS_LSA_SELF(lsa))
 				if (IS_DEBUG_OSPF(lsa, LSA_FLOODING))
 					zlog_debug(
-						"LSA[Type%d:%pI4]: LSA 0x%lx is self-originated: ",
+						"LSA[Type%d:%pI4]: LSA %p is self-originated: ",
 						lsa->data->type,
 						&lsa->data->id,
-						(unsigned long)lsa);
+						(void *)lsa);
 
 			if (IS_DEBUG_OSPF(lsa, LSA_FLOODING))
 				zlog_debug(
