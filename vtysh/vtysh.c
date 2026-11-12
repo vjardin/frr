@@ -3137,7 +3137,7 @@ DEFUNSH(VTYSH_ZEBRA, vtysh_quit_pseudowire, vtysh_quit_pseudowire_cmd, "quit",
 
 static char *do_prepend(struct vty *vty, struct cmd_token **argv, int argc)
 {
-	const char *argstr[argc + 1];
+	FRR_VLA(const char *, argstr, argc + 1);
 	int i, off = 0;
 
 	if (vty->node != VIEW_NODE) {
@@ -4574,9 +4574,12 @@ static void vtysh_log_print(struct vtysh_client *vclient,
 static void vtysh_log_read(struct event *event)
 {
 	struct vtysh_client *vclient = EVENT_ARG(event);
-	struct {
+	union {
 		struct zlog_live_hdr hdr;
-		char text[4096];
+		struct {
+			char hdr_bytes[sizeof(struct zlog_live_hdr)];
+			char text[4096];
+		};
 	} buf;
 	const char *text;
 	ssize_t ret;
@@ -4757,6 +4760,15 @@ static void execute_command(const char *command, char *argv[])
 {
 	pid_t pid;
 	int status;
+
+#ifdef _WIN32
+	/* no fork(): start the command and wait for it */
+	execute_flag = 1;
+	if (_spawnvp(_P_WAIT, command, (const char *const *)argv) == -1)
+		fprintf(stderr, "Can't execute %s: %s\n", command, safe_strerror(errno));
+	execute_flag = 0;
+	return;
+#endif
 
 	/* Call fork(). */
 	pid = fork();
@@ -4994,7 +5006,7 @@ DEFUN(clear,
       "Clear the terminal\n")
 {
 	rl_clear_screen(0, 0);
-#ifdef __OpenBSD__
+#if defined(__OpenBSD__) || !defined(HAVE_RL_CLEAR_VISIBLE_LINE)
 	rl_refresh_line(0, 0);
 #else
 	rl_clear_visible_line();
