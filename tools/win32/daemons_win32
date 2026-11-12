@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# watchfrr starts mgmtd, zebra and staticd, and the daemons set to "yes"
+# here.
+#
+# After a change of this list, run "frrservice.cmd install",
+# then "frrservice.cmd restart".
+#
+# Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+
+bgpd=no
+ospfd=no
+ospf6d=no
+ripd=no
+ripngd=no
+isisd=no
+fabricd=no
+eigrpd=no
+babeld=no
+bfdd=no
+sharpd=no
+
+#zebra_options="-A 127.0.0.1"
+#bgpd_options="-A 127.0.0.1"
+#frr_global_options=""
+#watchfrr_options=""

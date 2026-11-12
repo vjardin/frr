@@ -1358,6 +1358,15 @@ configure_file(tools/watchfrr.cmd.in "${FRR_BLD}/watchfrr.cmd" @ONLY NEWLINE_STY
 install(PROGRAMS "${FRR_BLD}/watchfrr.cmd" DESTINATION sbin COMPONENT frr)
 configure_file(tools/frrservice.cmd.in "${FRR_BLD}/frrservice.cmd" @ONLY NEWLINE_STYLE CRLF)
 install(PROGRAMS "${FRR_BLD}/frrservice.cmd" DESTINATION sbin COMPONENT frr)
+foreach(_conf tools/win32/daemons_win32:daemons tools/win32/frr_win32.conf:frr.conf
+		tools/etc/frr/vtysh.conf:vtysh.conf)
+	string(REPLACE ":" ";" _conf "${_conf}")
+	list(GET _conf 0 _src)
+	list(GET _conf 1 _dst)
+	configure_file("${_src}" "${FRR_BLD}/share/frr/${_dst}" @ONLY
+		NEWLINE_STYLE CRLF)
+	install(FILES "${FRR_BLD}/share/frr/${_dst}" DESTINATION share/frr COMPONENT frr)
+endforeach()
 install(TARGETS vtysh RUNTIME DESTINATION bin COMPONENT frr)
 install(TARGETS ospfclient RUNTIME DESTINATION bin COMPONENT frr)
 install(FILES "$<TARGET_PDB_FILE:vtysh>" DESTINATION bin COMPONENT symbols OPTIONAL)
