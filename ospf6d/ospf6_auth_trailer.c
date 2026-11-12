@@ -483,8 +483,8 @@ int ospf6_auth_check_digest(struct ospf6_header *oh, struct ospf6_interface *oi,
 			    struct in6_addr *src, unsigned int lls_block_len)
 {
 	uint32_t hash_len = KEYCHAIN_MAX_HASH_SIZE;
-	unsigned char apad[hash_len];
-	unsigned char temp_hash[hash_len];
+	unsigned char apad[KEYCHAIN_MAX_HASH_SIZE];
+	unsigned char temp_hash[KEYCHAIN_MAX_HASH_SIZE];
 	struct ospf6_auth_hdr *ospf6_auth;
 	struct ospf6_neighbor *on = NULL;
 	uint32_t ipv6_addr_size = sizeof(struct in6_addr);
@@ -613,7 +613,7 @@ void ospf6_auth_digest_send(struct in6_addr *src, struct ospf6_interface *oi,
 	uint16_t key_id = 0;
 	enum keychain_hash_algo hash_algo = KEYCHAIN_ALGO_NULL;
 	uint32_t hash_len = KEYCHAIN_MAX_HASH_SIZE;
-	unsigned char apad[hash_len];
+	unsigned char apad[KEYCHAIN_MAX_HASH_SIZE];
 	int ipv6_addr_size = sizeof(struct in6_addr);
 	struct ospf6 *ospf6 = NULL;
 
@@ -728,17 +728,19 @@ void ospf6_auth_update_digest(struct ospf6_interface *oi,
 	uint32_t block_s = keychain_get_block_size(algo);
 	uint32_t k_len = strlen(auth_str);
 	uint32_t ks_len = strlen(auth_str) + sizeof(cpid);
-	unsigned char ipad[block_s];
-	unsigned char opad[block_s];
-	unsigned char ko[block_s], ks[ks_len], tmp[hash_len];
+	FRR_VLA(unsigned char, ipad, block_s);
+	FRR_VLA(unsigned char, opad, block_s);
+	FRR_VLA(unsigned char, ko, block_s);
+	FRR_VLA(unsigned char, ks, ks_len);
+	FRR_VLA(unsigned char, tmp, hash_len);
 	unsigned char *first = NULL;
 	unsigned char *second = NULL;
-	unsigned char first_mes[block_s + pkt_len];
-	unsigned char second_mes[block_s + pkt_len];
-	unsigned char first_hash[hash_len];
-	unsigned char second_hash[hash_len];
+	FRR_VLA(unsigned char, first_mes, block_s + pkt_len);
+	FRR_VLA(unsigned char, second_mes, block_s + pkt_len);
+	FRR_VLA(unsigned char, first_hash, hash_len);
+	FRR_VLA(unsigned char, second_hash, hash_len);
 
-	memset(ko, 0, sizeof(ko));
+	memset(ko, 0, block_s);
 	memcpy(ks, auth_str, k_len);
 	memcpy(ks + k_len, &cpid, sizeof(cpid));
 	if (ks_len > hash_len) {
@@ -750,8 +752,8 @@ void ospf6_auth_update_digest(struct ospf6_interface *oi,
 	memcpy(ipad, ospf6_hash_ipad_max, block_s);
 	memcpy(opad, ospf6_hash_opad_max, block_s);
 
-	first = ospf6_hash_message_xor((unsigned char *)&ipad, ko, block_s);
-	second = ospf6_hash_message_xor((unsigned char *)&opad, ko, block_s);
+	first = ospf6_hash_message_xor(ipad, ko, block_s);
+	second = ospf6_hash_message_xor(opad, ko, block_s);
 
 	memcpy(first_mes, first, block_s);
 	memcpy(first_mes + block_s, oh, pkt_len);

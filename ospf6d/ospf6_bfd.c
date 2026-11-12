@@ -229,10 +229,11 @@ DEFUN(no_ipv6_ospf6_bfd_profile, no_ipv6_ospf6_bfd_profile_cmd,
 }
 
 #if HAVE_BFDD > 0
-DEFUN_HIDDEN(
+#define OSPF6_BFD_PARAM_DEFUN DEFUN_HIDDEN
 #else
-DEFUN(
+#define OSPF6_BFD_PARAM_DEFUN DEFUN
 #endif /* HAVE_BFDD */
+OSPF6_BFD_PARAM_DEFUN(
        ipv6_ospf6_bfd_param,
        ipv6_ospf6_bfd_param_cmd,
        "ipv6 ospf6 bfd (2-255) (50-60000) (50-60000)",
