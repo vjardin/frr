@@ -1,0 +1,169 @@
+@echo off
+rem SPDX-License-Identifier: GPL-2.0-or-later
+rem
+rem FRR as a Windows service: watchfrr, which starts the daemons and starts
+rem them again when they fail, through watchfrr.cmd, as frrinit.sh has it
+rem do under systemd on the other platforms.
+rem
+rem     frrservice.cmd install|uninstall|start|stop|restart|status [pathspace]
+rem
+rem "install" creates the service "frr", or "frr-<pathspace>", started with
+rem the system. The file "daemons" of the configuration directory gives
+rem the daemons that watchfrr watches (mgmtd, zebra and staticd always),
+rem with watchfrr_options for watchfrr, watchfrr.cmd reads it again for the
+rem options of each daemon. The service runs as LocalSystem, which the
+rem daemons need for their raw sockets and routes, and the service control
+rem manager starts it again when it fails. Stopping it ends watchfrr, then
+rem the daemons, with "watchfrr.cmd stop all" (the StopCommand of the
+rem service, see lib/win32/compat.c). The programs log to the Application
+rem event log, as "FRR <program>", when they log to syslog: put
+rem frr_global_options="--log syslog" in "daemons" for that. A program
+rem that crashes logs a backtrace (to its log file, not to the event log)
+rem and writes a minidump into @FRR_CRASHDIR_NATIVE@, which "install"
+rem creates; "uninstall" leaves it, and the dumps in it.
+rem
+rem It needs to run as an Administrator.
+rem
+rem Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "DAEMONS=mgmtd zebra bfdd bgpd ripd ripngd ospfd ospf6d isisd babeld eigrpd sharpd staticd fabricd"
+set "WAIT=150"
+
+set "SYS=%SystemRoot%\System32"
+set "EVENTLOG=HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application"
+
+set "B_PATH=%~dp0"
+set "C_PATH=@FRR_SYSCONFDIR_NATIVE@"
+set "V_PATH=@FRR_RUNSTATEDIR_NATIVE@"
+
+set "action=%~1"
+set "pathspace=%~2"
+set "SERVICE=frr"
+set "nsopt="
+if defined pathspace (
+	set "SERVICE=frr-%pathspace%"
+	set "C_PATH=%C_PATH%\%pathspace%"
+	set "V_PATH=%V_PATH%\%pathspace%"
+	set "nsopt=-N %pathspace%"
+)
+
+if exist "%C_PATH%\daemons" (
+	for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%C_PATH%\daemons") do set "%%a=%%~b"
+)
+
+if /i "%action%"=="install" goto :do_install
+if /i "%action%"=="uninstall" goto :do_uninstall
+if /i "%action%"=="start" goto :do_start
+if /i "%action%"=="stop" goto :do_stop
+if /i "%action%"=="restart" goto :do_restart
+if /i "%action%"=="status" goto :do_status
+
+:usage
+echo Usage: %~nx0 install^|uninstall^|start^|stop^|restart^|status [pathspace] 1>&2
+exit /b 1
+
+:do_install
+call :is_admin || exit /b 1
+if not exist "%B_PATH%watchfrr.exe" (
+	echo %~nx0: "!B_PATH!watchfrr.exe" does not exist 1>&2
+	exit /b 1
+)
+if not exist "%V_PATH%" mkdir "%V_PATH%"
+if not exist "%C_PATH%" mkdir "%C_PATH%"
+if not exist "@FRR_CRASHDIR_NATIVE@" mkdir "@FRR_CRASHDIR_NATIVE@"
+set "list="
+for %%d in (%DAEMONS%) do (
+	call :is_enabled %%d && if exist "%B_PATH%%%d.exe" set "list=!list! %%d"
+)
+set "bin=\"!B_PATH!watchfrr.exe\" !nsopt! !watchfrr_options!!list!"
+set "display=FRRouting"
+if defined pathspace set "display=FRRouting (!pathspace!)"
+"%SYS%\sc.exe" create !SERVICE! binPath= "!bin!" start= auto DisplayName= "!display!" obj= LocalSystem >NUL || (
+	echo %~nx0: could not create the service !SERVICE! 1>&2
+	exit /b 1
+)
+"%SYS%\sc.exe" description !SERVICE! "FRRouting routing daemons, watched by watchfrr:!list!" >NUL
+rem started again 5 s, 10 s, then 60 s after a failure, the count resets after a day
+"%SYS%\sc.exe" failure !SERVICE! reset= 86400 actions= restart/5000/restart/10000/restart/60000 >NUL
+rem an exit without a stop request is a failure too
+"%SYS%\sc.exe" failureflag !SERVICE! 1 >NUL
+set "stopcmd=\"!B_PATH!watchfrr.cmd\" stop all"
+if defined pathspace set "stopcmd=set \"FRR_PATHSPACE=!pathspace!\" && !stopcmd!"
+"%SYS%\reg.exe" add "HKLM\SYSTEM\CurrentControlSet\Services\!SERVICE!\Parameters" /v StopCommand /t REG_SZ /d "!stopcmd!" /f >NUL
+for %%d in (watchfrr %list%) do (
+	"%SYS%\reg.exe" add "%EVENTLOG%\FRR %%d" /v EventMessageFile /t REG_EXPAND_SZ /d "!B_PATH!%%d.exe" /f >NUL
+	"%SYS%\reg.exe" add "%EVENTLOG%\FRR %%d" /v TypesSupported /t REG_DWORD /d 7 /f >NUL
+)
+echo Service !SERVICE! installed: watchfrr!list!
+exit /b 0
+
+:do_uninstall
+call :is_admin || exit /b 1
+call :service_stop
+"%SYS%\sc.exe" delete !SERVICE! >NUL || (
+	echo %~nx0: could not delete the service !SERVICE! 1>&2
+	exit /b 1
+)
+"%SYS%\sc.exe" query state= all | "%SYS%\findstr.exe" /b /i /c:"SERVICE_NAME: frr" >NUL && goto :uninstalled
+for %%d in (watchfrr %DAEMONS%) do "%SYS%\reg.exe" delete "%EVENTLOG%\FRR %%d" /f >NUL 2>&1
+:uninstalled
+echo Service !SERVICE! removed
+exit /b 0
+
+:do_start
+call :service_start
+exit /b %errorlevel%
+
+:do_stop
+call :service_stop
+exit /b %errorlevel%
+
+:do_restart
+call :service_stop
+call :service_start
+exit /b %errorlevel%
+
+:do_status
+"%SYS%\sc.exe" query !SERVICE! | "%SYS%\findstr.exe" /c:"STATE" /c:"EXIT_CODE"
+for %%d in (watchfrr %DAEMONS%) do (
+	"%SYS%\tasklist.exe" /nh /fi "IMAGENAME eq %%d.exe" 2>NUL | "%SYS%\findstr.exe" /b /i /c:"%%d.exe"
+)
+exit /b 0
+
+:service_start
+"%SYS%\sc.exe" start !SERVICE! >NUL
+call :wait_state RUNNING && exit /b 0
+echo %~nx0: the service !SERVICE! did not start 1>&2
+exit /b 1
+
+:service_stop
+"%SYS%\sc.exe" query !SERVICE! >NUL 2>&1 || exit /b 0
+"%SYS%\sc.exe" query !SERVICE! | "%SYS%\findstr.exe" /c:"STOPPED" >NUL && exit /b 0
+"%SYS%\sc.exe" stop !SERVICE! >NUL
+call :wait_state STOPPED && exit /b 0
+echo %~nx0: the service !SERVICE! did not stop 1>&2
+exit /b 1
+
+:wait_state
+for /l %%i in (1,1,%WAIT%) do (
+	"%SYS%\sc.exe" query !SERVICE! | "%SYS%\findstr.exe" /c:"%~1" >NUL && exit /b 0
+	"%SYS%\ping.exe" -n 2 127.0.0.1 >NUL
+)
+exit /b 1
+
+:is_enabled
+if /i "%~1"=="mgmtd" exit /b 0
+if /i "%~1"=="zebra" exit /b 0
+if /i "%~1"=="staticd" exit /b 0
+set "cfg=!%~1!"
+if not defined cfg exit /b 1
+if /i "%cfg%"=="no" exit /b 1
+if "%cfg%"=="0" exit /b 1
+exit /b 0
+
+:is_admin
+"%SYS%\fltmc.exe" >NUL 2>&1 && exit /b 0
+echo %~nx0: this takes an Administrator 1>&2
+exit /b 1
