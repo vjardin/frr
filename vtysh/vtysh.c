@@ -4764,7 +4764,8 @@ static void execute_command(const char *command, char *argv[])
 #ifdef _WIN32
 	/* no fork(): start the command and wait for it */
 	execute_flag = 1;
-	if (_spawnvp(_P_WAIT, command, (const char *const *)argv) == -1)
+	if (!vtysh_win32_execute(command, argv) &&
+	    _spawnvp(_P_WAIT, command, (const char *const *)argv) == -1)
 		fprintf(stderr, "Can't execute %s: %s\n", command, safe_strerror(errno));
 	execute_flag = 0;
 	return;
