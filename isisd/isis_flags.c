@@ -34,8 +34,8 @@ long int flags_get_index(struct flags *flags)
 	} else {
 		node = listhead(flags->free_idcs);
 		ptr = listgetdata(node);
-		index = (long int)ptr;
-		listnode_delete(flags->free_idcs, (void *)index);
+		index = (long int)(intptr_t)ptr;
+		listnode_delete(flags->free_idcs, (void *)(intptr_t)index);
 		index--;
 	}
 
@@ -53,7 +53,7 @@ void flags_free_index(struct flags *flags, long int index)
 		flags->free_idcs = list_new();
 	}
 
-	listnode_add(flags->free_idcs, (void *)(index + 1));
+	listnode_add(flags->free_idcs, (void *)(intptr_t)(index + 1));
 
 	return;
 }

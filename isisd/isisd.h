@@ -49,6 +49,8 @@ static const bool fabricd = true;
 #define PROTO_IP_REDIST_HELP FRR_IP_REDIST_HELP_STR_FABRICD
 #define PROTO_IP6_REDIST_HELP FRR_IP6_REDIST_HELP_STR_FABRICD
 #define ROUTER_NODE OPENFABRIC_NODE
+/* a part of a command string or of its help that only isisd has */
+#define ISISD_ONLY_STR(str) ""
 #else
 static const bool fabricd = false;
 #define PROTO_TYPE ZEBRA_ROUTE_ISIS
@@ -62,6 +64,7 @@ static const bool fabricd = false;
 #define PROTO_IP_REDIST_HELP FRR_IP_REDIST_HELP_STR_ISISD
 #define PROTO_IP6_REDIST_HELP FRR_IP6_REDIST_HELP_STR_ISISD
 #define ROUTER_NODE ISIS_NODE
+#define ISISD_ONLY_STR(str) str
 extern void isis_cli_init(void);
 #endif
 

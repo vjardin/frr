@@ -95,7 +95,7 @@ uint16_t isis_str2mtid(const char *name)
 /* General MT settings api */
 
 struct mt_setting {
-	ISIS_MT_INFO_FIELDS;
+	ISIS_MT_INFO_FIELDS
 };
 
 static void *lookup_mt_setting(struct list *mt_list, uint16_t mtid)

@@ -2499,21 +2499,17 @@ static void show_isis_topology_common(struct vty *vty, int levels, struct isis *
 DEFUN(show_isis_topology, show_isis_topology_cmd,
       "show " PROTO_NAME
       " [vrf <NAME|all>] topology"
-#ifndef FABRICD
-      " [<level-1|level-2>]"
-      " [algorithm [(128-255)]]"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR(" [<level-1|level-2>]"
+		     " [algorithm [(128-255)]]")
       " [json$uj]"
       ,
       SHOW_STR PROTO_HELP VRF_CMD_HELP_STR
       "All VRFs\n"
       "IS-IS paths to Intermediate Systems\n"
-#ifndef FABRICD
-      "Paths to all level-1 routers in the area\n"
-      "Paths to all level-2 routers in the domain\n"
-      "Show Flex-algo routes\n"
-      "Algorithm number\n"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR("Paths to all level-1 routers in the area\n"
+		     "Paths to all level-2 routers in the domain\n"
+		     "Show Flex-algo routes\n"
+		     "Algorithm number\n")
       JSON_STR
 )
 {
@@ -3118,26 +3114,18 @@ static void show_isis_route_all_algos(struct vty *vty, int levels, struct isis *
 DEFUN(show_isis_route, show_isis_route_cmd,
       "show " PROTO_NAME
       " [vrf <NAME|all>] route"
-#ifndef FABRICD
-      " [<level-1|level-2>]"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR(" [<level-1|level-2>]")
       " [prefix-sid] [backup]"
-#ifndef FABRICD
-      " [algorithm [(128-255)]]"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR(" [algorithm [(128-255)]]")
       " [json$uj]",
       SHOW_STR PROTO_HELP VRF_FULL_CMD_HELP_STR
       "IS-IS routing table\n"
-#ifndef FABRICD
-      "level-1 routes\n"
-      "level-2 routes\n"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR("level-1 routes\n"
+		     "level-2 routes\n")
       "Show Prefix-SID information\n"
       "Show backup routes\n"
-#ifndef FABRICD
-      "Show Flex-algo routes\n"
-      "Algorithm number\n"
-#endif /* ifndef FABRICD */
+      ISISD_ONLY_STR("Show Flex-algo routes\n"
+		     "Algorithm number\n")
       JSON_STR)
 {
 	int levels;
@@ -3363,17 +3351,13 @@ static void show_isis_frr_summary_common(struct vty *vty, int levels, struct isi
 DEFUN(show_isis_frr_summary, show_isis_frr_summary_cmd,
       "show " PROTO_NAME
       " [vrf <NAME|all>] fast-reroute summary"
-#ifndef FABRICD
-      " [<level-1|level-2>]"
-#endif
+      ISISD_ONLY_STR(" [<level-1|level-2>]")
       ,
       SHOW_STR PROTO_HELP VRF_FULL_CMD_HELP_STR
       "IS-IS FRR information\n"
       "FRR summary\n"
-#ifndef FABRICD
-      "level-1 routes\n"
-      "level-2 routes\n"
-#endif
+      ISISD_ONLY_STR("level-1 routes\n"
+		     "level-2 routes\n")
 )
 {
 	int levels;
