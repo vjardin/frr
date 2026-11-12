@@ -98,6 +98,10 @@ static inline void pullwr_write_stream(struct pullwr *pullwr,
 extern void pullwr_stats(struct pullwr *pullwr, uint64_t *total_written,
 			 size_t *pending, size_t *kernel_pending);
 
+#ifdef _MSC_VER
+#include "lib/win32/msvc/pullwr.h"
+#endif
+
 #ifdef __cplusplus
 }
 #endif
