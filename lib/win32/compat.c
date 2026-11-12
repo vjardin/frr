@@ -1367,11 +1367,85 @@ static BOOL WINAPI console_ctrl(DWORD type)
 	}
 }
 
+void frr_win_crash_dump(void *exception_pointers);
+void frr_win_crash_context(const void *context);
+
+static int crash_signal(DWORD code)
+{
+	switch (code) {
+	case EXCEPTION_ACCESS_VIOLATION:
+	case EXCEPTION_IN_PAGE_ERROR:
+	case EXCEPTION_STACK_OVERFLOW:
+	case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+	case EXCEPTION_DATATYPE_MISALIGNMENT:
+		return SIGSEGV;
+	case EXCEPTION_ILLEGAL_INSTRUCTION:
+	case EXCEPTION_PRIV_INSTRUCTION:
+		return SIGILL;
+	case EXCEPTION_INT_DIVIDE_BY_ZERO:
+	case EXCEPTION_INT_OVERFLOW:
+	case EXCEPTION_FLT_DENORMAL_OPERAND:
+	case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+	case EXCEPTION_FLT_INEXACT_RESULT:
+	case EXCEPTION_FLT_INVALID_OPERATION:
+	case EXCEPTION_FLT_OVERFLOW:
+	case EXCEPTION_FLT_STACK_CHECK:
+	case EXCEPTION_FLT_UNDERFLOW:
+		return SIGFPE;
+	default:
+		return 0;
+	}
+}
+
+static LONG WINAPI crash_filter(EXCEPTION_POINTERS *ep)
+{
+	const EXCEPTION_RECORD *er = ep->ExceptionRecord;
+	int sig = crash_signal(er->ExceptionCode);
+	struct sigaction *sa;
+	siginfo_t si = { 0 };
+
+	if (!sig)
+		return EXCEPTION_CONTINUE_SEARCH;
+
+	frr_win_crash_dump(ep);
+
+	sa = &sigtab[sig];
+	si.si_signo = sig;
+	/* an access violation says what it tried to access */
+	if (er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2)
+		si.si_addr = (void *)er->ExceptionInformation[1];
+	else
+		si.si_addr = er->ExceptionAddress;
+
+	frr_win_crash_context(ep->ContextRecord);
+	if ((sa->sa_flags & SA_SIGINFO) && sa->sa_sigaction)
+		sa->sa_sigaction(sig, &si, NULL);
+	else if (!(sa->sa_flags & SA_SIGINFO) && sa->sa_handler != SIG_DFL &&
+		 sa->sa_handler != SIG_IGN && sa->sa_handler)
+		sa->sa_handler(sig);
+	frr_win_crash_context(NULL);
+
+	/* the handler did not end the process: the system does */
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static void crt_signal_trampoline(int sig)
 {
 	/* the CRT resets the handler; re-arm then deliver */
 	(signal)(sig, crt_signal_trampoline);
+
+	/* An exception the CRT turned into this signal: the CRT has it in
+	 * _pxcptinfoptrs, which raise() leaves NULL.
+	 */
+	if (sig == SIGSEGV || sig == SIGILL || sig == SIGFPE) {
+		EXCEPTION_POINTERS *ep = _pxcptinfoptrs;
+
+		frr_win_crash_dump(ep);
+		frr_win_crash_context(ep ? ep->ContextRecord : NULL);
+	} else if (sig == SIGABRT)
+		frr_win_crash_dump(NULL);
 	sig_deliver(sig);
+	frr_win_crash_context(NULL);
 }
 
 int sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
@@ -3113,6 +3187,7 @@ static void frr_win_startup(void)
 		ioctlsocket(sigwake[1], FIONBIO, &nb);
 	}
 	SetConsoleCtrlHandler(console_ctrl, TRUE);
+	SetUnhandledExceptionFilter(crash_filter);
 }
 
 #pragma section(".CRT$XCT00010", read)
