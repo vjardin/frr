@@ -482,7 +482,8 @@ static void vty_mgmt_handle_commit_config_reply(struct mgmt_fe_client *client, u
 	} else {
 		debug_fe_client("COMMIT_CONFIG request for client 0x%" PRIx64 " req-id %" PRIu64
 				" was successfull%s%s",
-				client_id, req_id, errmsg_if_any ? ": " : "", errmsg_if_any ?: "");
+				client_id, req_id, errmsg_if_any ? ": " : "",
+				errmsg_if_any ? errmsg_if_any : "");
 		if (errmsg_if_any)
 			vty_out(vty, "%% Configuration applied with notes:\n%s\n", errmsg_if_any);
 	}

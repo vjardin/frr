@@ -183,4 +183,8 @@ extern void mgmt_be_adapter_show_xpath_registries(struct vty *vty, const char *x
  */
 extern bool mgmt_is_mgmtd_interested(const char *xpath);
 
+#ifdef _MSC_VER
+#include "mgmtd/mgmt_be_adapter_win32.h"
+#endif
+
 #endif /* _FRR_MGMTD_BE_ADAPTER_H_ */

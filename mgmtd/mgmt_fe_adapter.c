@@ -780,7 +780,7 @@ int mgmt_fe_send_commit_cfg_reply(uint64_t session_id, uint64_t txn_id, enum mgm
 					    " source-ds: %s target-ds: %s validate-only: %u: reason: '%s'",
 					    session->session_id, session->adapter->name, req_id,
 					    mgmt_ds_id2name(src_ds_id), mgmt_ds_id2name(dst_ds_id),
-					    validate_only, error_if_any ?: "");
+					    validate_only, error_if_any ? error_if_any : "");
 	}
 
 	assert(session->cfg_txn_id == txn_id);
@@ -1729,7 +1729,8 @@ static void fe_adapter_handle_session_req(struct mgmt_fe_client_adapter *adapter
 		strlcpy(adapter->name, msg->client_name, sizeof(adapter->name));
 	}
 
-	session = fe_session_create(adapter, msg->notify_format ?: DEFAULT_NOTIFY_FORMAT,
+	session = fe_session_create(adapter,
+				    msg->notify_format ? msg->notify_format : DEFAULT_NOTIFY_FORMAT,
 				    client_id);
 	fe_adapter_send_session_reply(adapter, session->session_id, msg->req_id, true);
 }

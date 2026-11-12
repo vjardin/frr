@@ -34,10 +34,8 @@ struct txn_req_get_tree {
 	struct lyd_node *client_results; /* result tree from clients */
 };
 #define as_get_tree(txn_req)                                                                      \
-	({                                                                                        \
-		assert((txn_req)->req_type == TXN_REQ_TYPE_GETTREE);                              \
-		(struct txn_req_get_tree *)(txn_req);                                             \
-	})
+	(assert((txn_req)->req_type == TXN_REQ_TYPE_GETTREE),                                     \
+	 (struct txn_req_get_tree *)(txn_req))
 
 struct txn_req_rpc {
 	struct txn_req req;
@@ -49,10 +47,8 @@ struct txn_req_rpc {
 	struct lyd_node *client_results; /* result tree from clients */
 };
 #define as_rpc(txn_req)                                                                           \
-	({                                                                                        \
-		assert((txn_req)->req_type == TXN_REQ_TYPE_RPC);                                  \
-		(struct txn_req_rpc *)(txn_req);                                                  \
-	})
+	(assert((txn_req)->req_type == TXN_REQ_TYPE_RPC),                                         \
+	 (struct txn_req_rpc *)(txn_req))
 
 const char *txn_req_names[] = {
 	[TXN_REQ_TYPE_COMMIT] = "COMMIT",
@@ -441,7 +437,8 @@ static void txn_rpc_done(struct txn_req_rpc *rpc)
 	event_cancel(&rpc->req.timeout);
 
 	if (txn_req->err_info)
-		mgmt_fe_adapter_txn_error(txn->txn_id, req_id, false, txn_req->error ?: -EINVAL,
+		mgmt_fe_adapter_txn_error(txn->txn_id, req_id, false,
+					  txn_req->error ? txn_req->error : -EINVAL,
 					  txn_req->err_info);
 	else
 		mgmt_fe_adapter_send_rpc_reply(txn->session_id, txn->txn_id, req_id,

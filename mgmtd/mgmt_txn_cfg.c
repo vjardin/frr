@@ -67,10 +67,8 @@ struct txn_req_commit {
 	struct mgmt_commit_stats *cmt_stats;
 };
 #define as_commit(txn_req)                                                                        \
-	({                                                                                        \
-		assert((txn_req)->req_type == TXN_REQ_TYPE_COMMIT);                               \
-		(struct txn_req_commit *)(txn_req);                                               \
-	})
+	(assert((txn_req)->req_type == TXN_REQ_TYPE_COMMIT),                                      \
+	 (struct txn_req_commit *)(txn_req))
 
 /* The number of init txn's in progress, we lock on 0->1 and unlock on 1->0 */
 uint txn_init_readers;
@@ -779,9 +777,11 @@ static void txn_cfg_handle_cfg_reply(struct txn_req_commit *ccreq, bool success,
 	if (success)
 		_dbg("CFG_REPLY from '%s'", adapter->name);
 	else {
-		_log_err("CFG_REQ to '%s' failed err: %s", adapter->name, error_if_any ?: "None");
+		_log_err("CFG_REQ to '%s' failed err: %s", adapter->name,
+			 error_if_any ? error_if_any : "None");
 		txn_finish_commit(ccreq, MGMTD_VALIDATION_ERROR,
-				  error_if_any ?: "config validation failed by backend daemon");
+				  error_if_any ? error_if_any
+					       : "config validation failed by backend daemon");
 		return;
 	}
 
