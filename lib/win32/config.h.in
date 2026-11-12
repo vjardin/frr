@@ -36,6 +36,13 @@
 /* no symbol aliases with MSVC: keep the system inet_ntop() */
 #define INET_NTOP_NO_OVERRIDE 1
 
+/* backtrace() and backtrace_symbols(), in lib/win32/backtrace.c */
+#define HAVE_GLIBC_BACKTRACE 1
+
+#define TMPBASEDIR "@FRR_STATEDIR@/tmp"
+#define HAVE_OPENAT 1
+#define HAVE_UNLINKAT 1
+
 #define HAVE_STRUCT_SOCKADDR_IN6_SIN6_SCOPE_ID 1
 
 /* struct ip_mreq with the interface index in imr_interface (0.0.0.x) is
