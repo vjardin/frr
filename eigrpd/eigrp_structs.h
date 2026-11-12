@@ -370,6 +370,7 @@ struct eigrp_fifo {
 	unsigned long count;
 };
 
+#pragma pack(push, 1)
 struct eigrp_header {
 	uint8_t version;
 	uint8_t opcode;
@@ -497,6 +498,7 @@ struct TLV_Peer_Termination_type {
 	uint8_t unknown;
 	uint32_t neighbor_ip;
 } __attribute__((packed));
+#pragma pack(pop)
 
 /* Who executed Graceful restart */
 enum GR_type { EIGRP_GR_MANUAL, EIGRP_GR_FILTER };
