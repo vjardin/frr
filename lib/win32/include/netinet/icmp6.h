@@ -92,8 +92,9 @@ struct nd_opt_mtu {
 };
 
 /*
- * ICMPv6 type filter. Windows has no ICMP6_FILTER socket option, so
- * setting it fails with ENOPROTOOPT and the caller gives up on the socket.
+ * ICMPv6 type filter. Windows has no ICMP6_FILTER socket option: the
+ * compatibility layer keeps the filter of a socket and applies it in
+ * poll(), see lib/win32/compat.c.
  */
 struct icmp6_filter {
 	uint32_t icmp6_filt[8];
