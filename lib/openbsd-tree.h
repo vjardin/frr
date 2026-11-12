@@ -8,6 +8,7 @@
 #define	_SYS_TREE_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -369,8 +370,8 @@ void *_rb_parent(const struct rb_type *, void *);
 void _rb_set_left(const struct rb_type *, void *, void *);
 void _rb_set_right(const struct rb_type *, void *, void *);
 void _rb_set_parent(const struct rb_type *, void *, void *);
-void _rb_poison(const struct rb_type *, void *, unsigned long);
-int _rb_check(const struct rb_type *, void *, unsigned long);
+void _rb_poison(const struct rb_type *, void *, uintptr_t);
+int _rb_check(const struct rb_type *, void *, uintptr_t);
 
 #define RB_INITIALIZER(_head)	{ { NULL } }
 
@@ -489,13 +490,13 @@ int _rb_check(const struct rb_type *, void *, unsigned long);
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline void _name##_RB_POISON(      \
-		struct _type *elm, unsigned long poison)                       \
+		struct _type *elm, uintptr_t poison)                       \
 	{                                                                      \
 		_rb_poison(_name##_RB_TYPE, elm, poison);                      \
 	}                                                                      \
                                                                                \
 	__attribute__((__unused__)) static inline int _name##_RB_CHECK(        \
-		struct _type *elm, unsigned long poison)                       \
+		struct _type *elm, uintptr_t poison)                       \
 	{                                                                      \
 		return _rb_check(_name##_RB_TYPE, elm, poison);                \
 	}

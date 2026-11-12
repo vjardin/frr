@@ -629,7 +629,8 @@ void zlog_hexdump(const void *mem, size_t len)
 	const uint8_t *end = src + len;
 
 	if (len == 0) {
-		zlog_debug("%016lx: (zero length / no data)", (long)src);
+		zlog_debug("%016jx: (zero length / no data)",
+			   (uintmax_t)(uintptr_t)src);
 		return;
 	}
 
@@ -642,7 +643,7 @@ void zlog_hexdump(const void *mem, size_t len)
 		const uint8_t *lineend = src + 8;
 		unsigned line_bytes = 0;
 
-		bprintfrr(&fb, "%016lx: ", (long)src);
+		bprintfrr(&fb, "%016jx: ", (uintmax_t)(uintptr_t)src);
 
 		while (src < lineend && src < end) {
 			bprintfrr(&fb, "%02x ", *src++);

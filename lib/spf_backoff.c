@@ -176,7 +176,10 @@ static const char *timeval_format(struct timeval *tv)
 	if (!tv->tv_sec && !tv->tv_usec)
 		return "(never)";
 
-	tm = localtime_r(&tv->tv_sec, &tm_store);
+	/* tv_sec may be narrower than time_t (e.g. Windows' struct timeval) */
+	time_t sec = tv->tv_sec;
+
+	tm = localtime_r(&sec, &tm_store);
 	if (!tm
 	    || strftime(timebuf, sizeof(timebuf), "%Z %a %Y-%m-%d %H:%M:%S", tm)
 		       == 0) {

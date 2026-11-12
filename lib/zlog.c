@@ -687,7 +687,7 @@ static void zlog_backtrace_msg(const struct xref_logmsg *xref, int prio)
 		void *retaddr = frames[i];
 		char *loc = names[i];
 
-		zlog(prio, "| (%s) %16lx %-36s", uid, (long)retaddr, loc);
+		zlog(prio, "| (%s) %16jx %-36s", uid, (uintmax_t)(uintptr_t)retaddr, loc);
 	}
 	free(names);
 #endif

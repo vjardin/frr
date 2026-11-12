@@ -19,14 +19,14 @@
 
 static inline struct rb_entry *rb_n2e(const struct rb_type *t, void *node)
 {
-	unsigned long addr = (unsigned long)node;
+	uintptr_t addr = (uintptr_t)node;
 
 	return ((struct rb_entry *)(addr + t->t_offset));
 }
 
 static inline void *rb_e2n(const struct rb_type *t, struct rb_entry *rbe)
 {
-	unsigned long addr = (unsigned long)rbe;
+	uintptr_t addr = (uintptr_t)rbe;
 
 	return ((void *)(addr - t->t_offset));
 }
@@ -570,7 +570,7 @@ void _rb_set_parent(const struct rb_type *t, void *node, void *parent)
 	RBE_PARENT(rbe) = rbp;
 }
 
-void _rb_poison(const struct rb_type *t, void *node, unsigned long poison)
+void _rb_poison(const struct rb_type *t, void *node, uintptr_t poison)
 {
 	struct rb_entry *rbe = rb_n2e(t, node);
 
@@ -578,11 +578,11 @@ void _rb_poison(const struct rb_type *t, void *node, unsigned long poison)
 		(struct rb_entry *)poison;
 }
 
-int _rb_check(const struct rb_type *t, void *node, unsigned long poison)
+int _rb_check(const struct rb_type *t, void *node, uintptr_t poison)
 {
 	struct rb_entry *rbe = rb_n2e(t, node);
 
-	return ((unsigned long)RBE_PARENT(rbe) == poison
-		&& (unsigned long)RBE_LEFT(rbe) == poison
-		&& (unsigned long)RBE_RIGHT(rbe) == poison);
+	return ((uintptr_t)RBE_PARENT(rbe) == poison
+		&& (uintptr_t)RBE_LEFT(rbe) == poison
+		&& (uintptr_t)RBE_RIGHT(rbe) == poison);
 }
