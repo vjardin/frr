@@ -49,6 +49,11 @@
 #define HAVE_BGPD 1
 #define HAVE_RIPD 1
 #define HAVE_RIPNGD 1
+#define HAVE_OSPFD 1
+#define HAVE_OSPF6D 1
+
+/* ospfd -a: the OSPF API server, for clients of the LSA database */
+#define SUPPORT_OSPF_API 1
 
 /* daemons listen for vtysh on an AF_UNIX socket (Windows 10 1803+) */
 #define VTYSH 1
