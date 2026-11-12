@@ -2693,7 +2693,7 @@ FILE *vty_open_config(const char *config_file, char *config_default_dir)
 
 	/* If -f flag specified. */
 	if (config_file != NULL) {
-		if (!IS_DIRECTORY_SEP(config_file[0])) {
+		if (!IS_ABSOLUTE_PATH(config_file)) {
 			if (getcwd(cwd, MAXPATHLEN) == NULL) {
 				flog_err_sys(
 					EC_LIB_SYSTEM_CALL,
