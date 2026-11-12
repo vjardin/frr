@@ -27,6 +27,9 @@ set(FRR_STATEDIR "C:/ProgramData/frr" CACHE PATH
 set(FRR_DEPS_PREFIX "C:/src/deps" CACHE PATH
 	"Prefix where libyang was installed (include/, lib/)")
 
+set(FRR_NPCAP_SDK "" CACHE PATH
+	"Npcap SDK (Include/, Lib/); isisd and fabricd are built when it is set")
+
 set(FRR_WIN32_EXTRA_DEFINES "")
 
 # tools and dependencies
@@ -58,6 +61,26 @@ find_path(LIBYANG_INCLUDE_DIR libyang/libyang.h
 	HINTS "${FRR_DEPS_PREFIX}/include" REQUIRED)
 find_library(LIBYANG_LIBRARY yang HINTS "${FRR_DEPS_PREFIX}/lib" REQUIRED)
 find_file(LIBYANG_DLL yang.dll HINTS "${FRR_DEPS_PREFIX}/lib" "${FRR_DEPS_PREFIX}/bin")
+
+set(FRR_VTYSH_DAEMON_NAMES zebra mgmtd bgpd ripd ripngd ospfd ospf6d)
+if(FRR_NPCAP_SDK)
+	if(CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM64")
+		set(_frr_npcap_lib "${FRR_NPCAP_SDK}/Lib/ARM64")
+	elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		set(_frr_npcap_lib "${FRR_NPCAP_SDK}/Lib/x64")
+	else()
+		set(_frr_npcap_lib "${FRR_NPCAP_SDK}/Lib")
+	endif()
+	find_path(NPCAP_INCLUDE_DIR pcap.h
+		HINTS "${FRR_NPCAP_SDK}/Include" NO_DEFAULT_PATH REQUIRED)
+	find_library(NPCAP_LIBRARY wpcap
+		HINTS "${_frr_npcap_lib}" NO_DEFAULT_PATH REQUIRED)
+	set(HAVE_ISISD 1)
+	set(HAVE_FABRICD 1)
+	list(APPEND FRR_VTYSH_DAEMON_NAMES isisd fabricd)
+else()
+	message(STATUS "FRR_NPCAP_SDK is not set: isisd and fabricd are not built")
+endif()
 
 # compiler setup
 set(FRR_SRC "${CMAKE_SOURCE_DIR}")
@@ -125,7 +148,7 @@ add_custom_command(
 
 add_custom_command(
 	OUTPUT "${FRR_BLD}/lib/vtysh_daemons.h"
-	COMMAND "${PERL_EXECUTABLE}" "${FRR_SRC}/vtysh/daemons.pl" zebra mgmtd bgpd ripd ripngd ospfd ospf6d
+	COMMAND "${PERL_EXECUTABLE}" "${FRR_SRC}/vtysh/daemons.pl" ${FRR_VTYSH_DAEMON_NAMES}
 		> "${FRR_BLD}/lib/vtysh_daemons.h"
 	DEPENDS "${FRR_SRC}/vtysh/daemons.pl"
 	COMMENT "Generating lib/vtysh_daemons.h")
@@ -803,6 +826,70 @@ frr_daemon(ospf6d
 		yang/frr-ospf-route-map.yang
 		yang/frr-ospf6-route-map.yang
 )
+
+if(FRR_NPCAP_SDK)
+set(ISISD_COMMON_SOURCES
+	isisd/isis_affinitymap.c
+	isisd/isis_adjacency.c
+	isisd/isis_bfd.c
+	isisd/isis_circuit.c
+	isisd/isis_csm.c
+	isisd/isis_dr.c
+	isisd/isis_dynhn.c
+	isisd/isis_errors.c
+	isisd/isis_events.c
+	isisd/isis_flags.c
+	isisd/isis_ldp_sync.c
+	isisd/isis_lfa.c
+	isisd/isis_lsp.c
+	isisd/isis_misc.c
+	isisd/isis_mt.c
+	isisd/isis_pdu.c
+	isisd/isis_pdu_counter.c
+	isisd/isis_redist.c
+	isisd/isis_route.c
+	isisd/isis_routemap.c
+	isisd/isis_spf.c
+	isisd/isis_sr.c
+	isisd/isis_flex_algo.c
+	isisd/isis_srv6.c
+	isisd/isis_te.c
+	isisd/isis_tlvs.c
+	isisd/isis_tx_queue.c
+	isisd/isis_zebra.c
+	isisd/isisd.c
+	isisd/iso_checksum.c
+	isisd/fabricd.c
+	isisd/isis_main.c
+	isisd/isis_win32.c
+)
+
+frr_daemon(isisd
+	SOURCES
+		${ISISD_COMMON_SOURCES}
+		isisd/isis_nb.c
+		isisd/isis_nb_config.c
+		isisd/isis_nb_notifications.c
+		isisd/isis_nb_state.c
+		isisd/isis_cli.c
+	CLIPPY
+		isisd/isis_cli.c
+	YANG
+		yang/frr-isisd.yang
+	LIBS "${NPCAP_LIBRARY}" delayimp iphlpapi)
+
+frr_daemon(fabricd
+	SOURCES
+		${ISISD_COMMON_SOURCES}
+		isisd/isis_vty_fabricd.c
+	LIBS "${NPCAP_LIBRARY}" delayimp iphlpapi)
+target_compile_definitions(fabricd PRIVATE FABRICD=1)
+
+foreach(_daemon isisd fabricd)
+	target_include_directories(${_daemon} PRIVATE "${NPCAP_INCLUDE_DIR}")
+	target_link_options(${_daemon} PRIVATE /DELAYLOAD:wpcap.dll)
+endforeach()
+endif()
 
 set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
 set(FRR_XREFS)
