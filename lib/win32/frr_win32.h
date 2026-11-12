@@ -299,6 +299,7 @@ extern size_t strlcpy(char *__restrict dst, const char *__restrict src,
 extern size_t strlcat(char *__restrict dst, const char *__restrict src,
 		      size_t size);
 extern char *strsep(char **stringp, const char *delim);
+#define strcasestr frr_win_strcasestr
 extern char *strcasestr(const char *haystack, const char *needle);
 extern void *memmem(const void *h, size_t hl, const void *n, size_t nl);
 extern void *memrchr(const void *s, int c, size_t n);
@@ -732,6 +733,8 @@ struct pollfd {
 extern SOCKET frr_win_fd2sock(int fd);
 extern int frr_win_sock2fd(SOCKET s);
 extern SOCKET frr_win_fd_detach(int fd);
+extern int frr_win_fd_adopt(SOCKET s);
+extern void frr_win_fd_unadopt(int fd);
 
 extern void frr_win_module_builtin(const char *name, void *frr_module);
 extern int frr_win_select(int nfds, fd_set *rd, fd_set *wr, fd_set *ex, struct timeval *tv);
