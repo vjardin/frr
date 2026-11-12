@@ -40,9 +40,12 @@ static void zlog_live(struct zlog_target *zt, struct zlog_msg *msgs[],
 		      size_t nmsgs)
 {
 	struct zlt_live *zte = container_of(zt, struct zlt_live, zt);
-	struct zlog_live_hdr hdrs[nmsgs], *hdr = hdrs;
-	struct mmsghdr mmhs[nmsgs], *mmh = mmhs;
-	struct iovec iovs[nmsgs * 3], *iov = iovs;
+	FRR_VLA(struct zlog_live_hdr, hdrs, nmsgs);
+	FRR_VLA(struct mmsghdr, mmhs, nmsgs);
+	FRR_VLA(struct iovec, iovs, nmsgs * 3);
+	struct zlog_live_hdr *hdr = hdrs;
+	struct mmsghdr *mmh = mmhs;
+	struct iovec *iov = iovs;
 	struct timespec ts;
 	size_t i, textlen;
 	int fd;
@@ -53,8 +56,8 @@ static void zlog_live(struct zlog_target *zt, struct zlog_msg *msgs[],
 	if (fd < 0)
 		return;
 
-	memset(mmhs, 0, sizeof(mmhs));
-	memset(hdrs, 0, sizeof(hdrs));
+	memset(mmhs, 0, sizeof(mmhs[0]) * nmsgs);
+	memset(hdrs, 0, sizeof(hdrs[0]) * nmsgs);
 
 	for (i = 0; i < nmsgs; i++) {
 		const struct fmt_outpos *argpos;
@@ -153,7 +156,7 @@ static void zlog_live_sigsafe(struct zlog_target *zt, const char *text,
 			      size_t len)
 {
 	struct zlt_live *zte = container_of(zt, struct zlt_live, zt);
-	struct zlog_live_hdr hdr[1] = {};
+	struct zlog_live_hdr hdr_buf = {}, *hdr = &hdr_buf;
 	struct iovec iovs[2], *iov = iovs;
 	struct msghdr mh[1] = {};
 	struct timespec ts;
@@ -172,7 +175,7 @@ static void zlog_live_sigsafe(struct zlog_target *zt, const char *text,
 	hdr->textlen = len;
 
 	iov->iov_base = (char *)hdr;
-	iov->iov_len = sizeof(hdr);
+	iov->iov_len = sizeof(*hdr);
 	iov++;
 
 	iov->iov_base = (char *)text;
