@@ -649,7 +649,7 @@ set(ZEBRA_YANG
 	yang/frr-zebra-route-map.yang
 )
 frr_daemon(zebra SOURCES ${ZEBRA_SOURCES} CLIPPY ${ZEBRA_CLIPPY} YANG ${ZEBRA_YANG}
-	LIBS iphlpapi)
+	LIBS iphlpapi cfgmgr32)
 
 set(MGMTD_SOURCES
 	mgmtd/mgmt.c

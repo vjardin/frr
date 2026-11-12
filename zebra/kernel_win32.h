@@ -20,6 +20,7 @@
 #define near
 #include <iphlpapi.h>
 #include <netioapi.h>
+#include <cfgmgr32.h>
 #undef VOID
 #undef CONST
 #undef IN
