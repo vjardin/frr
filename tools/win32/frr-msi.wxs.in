@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-2.0-or-later
+
+  Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+-->
+<?define FrrDaemons = "@FRR_MSI_DAEMONS@"?>
+@FRR_MSI_ISIS_DEFINE@
+<?ifndef FrrNpcapDir?>
+<?define FrrNpcapDir = "[System64Folder]Npcap"?>
+<?endif?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+	<Fragment>
+		<Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable"/>
+		<ComponentGroup Id="FrrSystem" Directory="INSTALL_ROOT">
+			<Component Id="FrrInstallDir">
+				<RegistryValue Root="HKLM" Key="SOFTWARE\FRRouting" Name="InstallDir"
+					Type="string" Value="[INSTALL_ROOT]" KeyPath="yes"/>
+				<ServiceControl Id="FrrServiceControl" Name="frr" Start="install"
+					Stop="both" Remove="uninstall" Wait="yes"/>
+			</Component>
+			<?foreach DAEMON in $(var.FrrDaemons)?>
+			<Component Id="FrrEventSource.$(var.DAEMON)">
+				<RegistryKey Root="HKLM" ForceDeleteOnUninstall="yes"
+					Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\FRR $(var.DAEMON)">
+					<RegistryValue Name="EventMessageFile" Type="expandable"
+						Value="[INSTALL_ROOT]sbin\$(var.DAEMON).exe" KeyPath="yes"/>
+					<RegistryValue Name="TypesSupported" Type="integer" Value="7"/>
+				</RegistryKey>
+			</Component>
+			<?endforeach?>
+		</ComponentGroup>
+
+		<SetProperty Id="FrrServiceInstall" Sequence="execute" Before="FrrServiceInstall"
+			Condition="NOT REMOVE~=&quot;ALL&quot;"
+			Value="&quot;[System64Folder]cmd.exe&quot; /d /s /c &quot;&quot;[INSTALL_ROOT]sbin\frrservice.cmd&quot; install&quot;"/>
+		<CustomAction Id="FrrServiceInstall" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+			DllEntry="WixQuietExec" Execute="deferred" Return="check" Impersonate="no"/>
+		<SetProperty Id="FrrServiceInstallRollback" Sequence="execute"
+			Before="FrrServiceInstallRollback"
+			Condition="NOT Installed AND NOT REMOVE~=&quot;ALL&quot;"
+			Value="&quot;[System64Folder]cmd.exe&quot; /d /s /c &quot;&quot;[INSTALL_ROOT]sbin\frrservice.cmd&quot; uninstall&quot;"/>
+		<CustomAction Id="FrrServiceInstallRollback" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+			DllEntry="WixQuietExec" Execute="rollback" Return="ignore" Impersonate="no"/>
+		<InstallExecuteSequence>
+			<Custom Action="FrrServiceInstallRollback" After="InstallServices"
+				Condition="NOT Installed AND NOT REMOVE~=&quot;ALL&quot;"/>
+			<Custom Action="FrrServiceInstall" After="FrrServiceInstallRollback"
+				Condition="NOT REMOVE~=&quot;ALL&quot;"/>
+		</InstallExecuteSequence>
+
+		<?ifdef FrrIsisDaemons?>
+		<FeatureRef Id="CM_C_isis">
+			<ComponentGroupRef Id="FrrIsisSystem"/>
+		</FeatureRef>
+		<ComponentGroup Id="FrrIsisSystem" Directory="INSTALL_ROOT">
+			<?foreach DAEMON in $(var.FrrIsisDaemons)?>
+			<Component Id="FrrEventSource.$(var.DAEMON)">
+				<RegistryKey Root="HKLM" ForceDeleteOnUninstall="yes"
+					Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\FRR $(var.DAEMON)">
+					<RegistryValue Name="EventMessageFile" Type="expandable"
+						Value="[INSTALL_ROOT]sbin\$(var.DAEMON).exe" KeyPath="yes"/>
+					<RegistryValue Name="TypesSupported" Type="integer" Value="7"/>
+				</RegistryKey>
+			</Component>
+			<?endforeach?>
+		</ComponentGroup>
+
+		<Property Id="FRR_NPCAP">
+			<DirectorySearch Id="FrrNpcapDir" Path="$(var.FrrNpcapDir)" Depth="0">
+				<FileSearch Id="FrrNpcapWpcap" Name="wpcap.dll"/>
+			</DirectorySearch>
+		</Property>
+		<SetProperty Id="FRR_NPCAP_MISSING" Sequence="execute" After="CostFinalize"
+			Condition="NOT FRR_NPCAP AND &amp;CM_C_isis=3"
+			Value="Npcap is not installed: isisd and fabricd need it, see https://npcap.com"/>
+		<SetProperty Id="WIXUI_EXITDIALOGOPTIONALTEXT" Sequence="ui" After="ExecuteAction"
+			Condition="NOT FRR_NPCAP AND &amp;CM_C_isis=3"
+			Value="Npcap is not installed. isisd and fabricd need it to send and receive IS-IS frames: install it from https://npcap.com."/>
+		<SetProperty Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Sequence="ui" After="ExecuteAction"
+			Condition="NOT FRR_NPCAP AND &amp;CM_C_isis=3"
+			Value="Open the Npcap download page"/>
+		<SetProperty Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Sequence="ui" After="ExecuteAction"
+			Condition="NOT FRR_NPCAP AND &amp;CM_C_isis=3" Value="1"/>
+		<Property Id="WixShellExecTarget" Value="https://npcap.com/#download"/>
+		<CustomAction Id="FrrOpenNpcapPage" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+			DllEntry="WixShellExec" Impersonate="yes" Return="ignore"/>
+		<UI>
+			<Publish Dialog="ExitDialog" Control="Finish" Event="DoAction"
+				Value="FrrOpenNpcapPage" Order="1"
+				Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT FRR_NPCAP"/>
+		</UI>
+		<?endif?>
+	</Fragment>
+</Wix>

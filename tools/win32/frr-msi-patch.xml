@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-2.0-or-later
+
+  Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+-->
+<CPackWiXPatch>
+	<CPackWiXFragment Id="CM_C_frr">
+		<ComponentGroupRef Id="FrrSystem"/>
+	</CPackWiXFragment>
+</CPackWiXPatch>
