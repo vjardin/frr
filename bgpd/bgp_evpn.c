@@ -4782,6 +4782,7 @@ static int install_uninstall_type5_route_in_vpn_rib(struct bgp *bgp, struct pref
 	struct attr *attr_new;
 	struct bgp *bgp_vpn = bgp_get_default();
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *vpn_pi;
 	struct ecommunity *ecom;
 	struct prefix_rd *prd;
@@ -4895,6 +4896,7 @@ static int install_uninstall_type5_route_in_vpn_rib(struct bgp *bgp, struct pref
 	bgp_attr_flush(&attr);
 
 	return 0;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /*

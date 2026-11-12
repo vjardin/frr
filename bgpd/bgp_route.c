@@ -345,6 +345,7 @@ struct bgp_dest *bgp_safi_node_lookup(struct bgp_table *table, safi_t safi,
 {
 	struct bgp_dest *dest;
 	struct bgp_dest *pdest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 
 	if (!table)
 		return NULL;
@@ -364,6 +365,7 @@ struct bgp_dest *bgp_safi_node_lookup(struct bgp_table *table, safi_t safi,
 	dest = bgp_node_lookup(table, p);
 
 	return dest;
+	BGP_DEST_AUTOUNLOCK_END(pdest);
 }
 
 /* Allocate bgp_path_info_extra */
@@ -7261,6 +7263,7 @@ void bgp_withdraw(struct peer *peer, const struct prefix *p,
 	struct bgp *bgp;
 	char pfx_buf[BGP_PRD_PATH_STRLEN];
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 
 #ifdef ENABLE_BGP_VNC
@@ -7336,6 +7339,7 @@ void bgp_withdraw(struct peer *peer, const struct prefix *p,
 	}
 
 	return;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 void bgp_default_originate(struct peer *peer, afi_t afi, safi_t safi)
@@ -9020,6 +9024,7 @@ void bgp_static_update(struct bgp *bgp, const struct prefix *p,
 		       struct bgp_static *bgp_static, afi_t afi, safi_t safi)
 {
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 	struct bgp_path_info *new;
 	struct bgp_path_info_extra rmap_extra = {};
@@ -9295,6 +9300,7 @@ void bgp_static_update(struct bgp *bgp, const struct prefix *p,
 
 	/* Unintern original. */
 	aspath_unintern(&attr.aspath);
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 void bgp_static_withdraw(struct bgp *bgp, const struct prefix *p, afi_t afi,
@@ -10310,6 +10316,7 @@ static bool bgp_upa_originate_single_global(struct bgp *bgp, struct bgp_dest *de
 void bgp_upa_check_prefix_global(struct bgp *bgp, const struct prefix *p, afi_t afi, safi_t safi)
 {
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	bool is_unreachable;
 	bool upa_exists = false;
 	struct bgp_upa_prefix_entry *tracked_prefix = NULL;
@@ -10348,6 +10355,7 @@ void bgp_upa_check_prefix_global(struct bgp *bgp, const struct prefix *p, afi_t 
 			XFREE(MTYPE_BGP_AGGREGATE, tracked_prefix);
 		}
 	}
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 void bgp_upa_originate_global(struct bgp *bgp, afi_t afi, safi_t safi)
@@ -12103,6 +12111,7 @@ void bgp_redistribute_add(struct bgp *bgp, struct prefix *p, const union g_addr 
 	struct interface *ifp;
 
 	struct bgp_dest *bn BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 
 	if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETE_IN_PROGRESS) ||
 	    bgp->peer_self == NULL)
@@ -12305,6 +12314,7 @@ void bgp_redistribute_add(struct bgp *bgp, struct prefix *p, const union g_addr 
 
 	/* Unintern original. */
 	aspath_unintern(&attr.aspath);
+	BGP_DEST_AUTOUNLOCK_END(bn);
 }
 
 void bgp_redistribute_delete(struct bgp *bgp, struct prefix *p, uint8_t type,
@@ -17629,7 +17639,9 @@ struct bgp_table_stats {
 	unsigned long long counts[BGP_STATS_MAX];
 
 	unsigned long long
-		prefix_len_count[MAX(EVPN_ROUTE_PREFIXLEN, IPV6_MAX_BITLEN) +
+		prefix_len_count[(EVPN_ROUTE_PREFIXLEN > IPV6_MAX_BITLEN
+					  ? EVPN_ROUTE_PREFIXLEN
+					  : IPV6_MAX_BITLEN) +
 				 1];
 
 	double total_space;

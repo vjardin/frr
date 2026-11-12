@@ -811,7 +811,7 @@ struct community *community_list_match_delete(struct community *com,
 {
 	struct community_entry *entry;
 	uint32_t val;
-	uint32_t com_index_to_delete[com->size];
+	FRR_VLA(uint32_t, com_index_to_delete, com->size);
 	int delete_index = 0;
 	int i;
 
@@ -1071,7 +1071,7 @@ struct lcommunity *lcommunity_list_match_delete(struct lcommunity *lcom,
 						struct community_list *list)
 {
 	struct community_entry *entry;
-	uint32_t com_index_to_delete[lcom->size];
+	FRR_VLA(uint32_t, com_index_to_delete, lcom->size);
 	uint8_t *ptr;
 	int delete_index = 0;
 	int i;
@@ -1119,7 +1119,7 @@ struct ecommunity *ecommunity_list_match_delete(struct ecommunity *ecom,
 						struct community_list *list)
 {
 	struct community_entry *entry;
-	uint32_t com_index_to_delete[ecom->size];
+	FRR_VLA(uint32_t, com_index_to_delete, ecom->size);
 	uint8_t *ptr;
 	uint32_t delete_index = 0;
 	uint32_t i;

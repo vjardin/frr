@@ -258,6 +258,7 @@ static int bgp_evpn_es_route_install(struct bgp *bgp,
 {
 	int ret = 0;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi = NULL;
 	struct attr *attr_new = NULL;
 
@@ -316,6 +317,7 @@ static int bgp_evpn_es_route_install(struct bgp *bgp,
 	ret = bgp_evpn_es_route_select_install(bgp, es, dest, pi);
 
 	return ret;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /* Uninstall Type-1/Type-4 route entry from the ES routing table */
@@ -324,6 +326,7 @@ static int bgp_evpn_es_route_uninstall(struct bgp *bgp, struct bgp_evpn_es *es,
 {
 	int ret;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 
 	if (!es->route_table)
@@ -353,6 +356,7 @@ static int bgp_evpn_es_route_uninstall(struct bgp *bgp, struct bgp_evpn_es *es,
 	ret = bgp_evpn_es_route_select_install(bgp, es, dest, pi);
 
 	return ret;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /* Install or uninstall a Type-4 route in the per-ES routing table */

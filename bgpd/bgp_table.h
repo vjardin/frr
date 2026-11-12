@@ -175,7 +175,34 @@ static inline void _bgp_dest_auto_unlock(struct bgp_dest **dest)
  * do not use it for a reference that has to outlive the scope, i.e. one
  * that is returned to the caller or stored somewhere.
  */
+/*
+ * MSVC has no cleanup attribute. Functions using BGP_DEST_AUTOUNLOCK
+ * bracket the rest of their body with
+ *
+ *	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+ *	BGP_DEST_AUTOUNLOCK_BEGIN;
+ *	...
+ *	BGP_DEST_AUTOUNLOCK_END(dest);
+ *	}
+ *
+ * which is a __try / __finally there (the __finally block runs on every
+ * exit, return included)
+ */
+#if defined(_MSC_VER)
+#define BGP_DEST_AUTOUNLOCK
+#define BGP_DEST_AUTOUNLOCK_BEGIN __try {
+#define _BGP_DEST_UNLOCK_ONE(dest) _bgp_dest_auto_unlock(&(dest));
+#define BGP_DEST_AUTOUNLOCK_END(...)                                           \
+	}                                                                      \
+	__finally                                                              \
+	{                                                                      \
+		MACRO_REPEAT(_BGP_DEST_UNLOCK_ONE, __VA_ARGS__)                \
+	}
+#else
 #define BGP_DEST_AUTOUNLOCK __attribute__((cleanup(_bgp_dest_auto_unlock)))
+#define BGP_DEST_AUTOUNLOCK_BEGIN MACRO_REQUIRE_SEMICOLON()
+#define BGP_DEST_AUTOUNLOCK_END(...) MACRO_REQUIRE_SEMICOLON()
+#endif
 
 /*
  * bgp_dest_from_rnode

@@ -1004,7 +1004,7 @@ static void bgp_notify_send_internal(struct peer_connection *connection,
 	bool hard_reset = bgp_notify_send_hard_reset(peer, code, sub_code);
 
 	/* Lock I/O mutex to prevent other threads from pushing packets */
-	frr_mutex_lock_autounlock(&connection->io_mtx);
+	pthread_mutex_lock(&connection->io_mtx);
 	/* ============================================== */
 
 	/* Allocate new stream. */
@@ -1135,6 +1135,8 @@ static void bgp_notify_send_internal(struct peer_connection *connection,
 							  peer->bgp->peer);
 
 	bgp_write_notify(connection);
+
+	pthread_mutex_unlock(&connection->io_mtx);
 }
 
 /*

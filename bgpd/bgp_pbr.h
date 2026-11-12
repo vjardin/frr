@@ -54,11 +54,11 @@ struct bgp_pbr_match_val {
 struct bgp_pbr_entry_action {
 	/* used to store enum bgp_pbr_action_enum enumerate */
 	uint8_t action;
-	union {
-		union {
+	FRR_ALIGNAS(8) union {
+		FRR_ALIGNAS(8) union {
 			uint8_t rate_info[4]; /* IEEE.754.1985 */
 			float rate;
-		} r __attribute__((aligned(8)));
+		} r;
 		struct _pbr_action {
 			uint8_t do_sample;
 			uint8_t filter;
@@ -70,7 +70,7 @@ struct bgp_pbr_entry_action {
 			uint8_t duplicate;
 		} zr;
 		uint8_t marking_dscp;
-	} u __attribute__((aligned(8)));
+	} u;
 };
 
 /* BGP Policy Route structure */

@@ -195,6 +195,9 @@ extern const char *bgp_debug_rdpfxpath2str(
 	union prefixconstptr pu, mpls_label_t *label, uint8_t num_labels,
 	int addpath_valid, uint32_t addpath_id,
 	struct bgp_route_evpn *overlay_index, char *str, int size);
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define bgp_debug_rdpfxpath2str(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10) bgp_debug_rdpfxpath2str(a0, a1, a2, PFX_CPTR(a3), a4, a5, a6, a7, a8, a9, a10)
+#endif
 const char *bgp_notify_admin_message(char *buf, size_t bufsz, uint8_t *data,
 				     size_t datalen);
 

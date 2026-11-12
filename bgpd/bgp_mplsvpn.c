@@ -1329,7 +1329,8 @@ static struct bgp_path_info *leak_update(struct bgp *to_bgp, struct bgp_dest *bn
 		labelssame = bgp_path_info_labels_same(bpi, bgp_labels.label,
 						       bgp_labels.num_labels);
 
-		bgp_nexthop = bpi->extra->vrfleak->bgp_orig ?: bgp_orig;
+		bgp_nexthop = bpi->extra->vrfleak->bgp_orig ? bpi->extra->vrfleak->bgp_orig
+								: bgp_orig;
 		if (bgp_nexthop->vrf_id == VRF_UNKNOWN) {
 			if (debug) {
 				zlog_debug("%s: ->%s(s_flags: 0x%x b_flags: 0x%x): %pFX: Found route, origin VRF does not exist, not leaking",

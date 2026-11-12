@@ -2659,8 +2659,8 @@ void bgp_zebra_initiate_radv(struct bgp *bgp, struct peer *peer)
 	 * If we don't have an ifp pointer, call function to find the
 	 * ifps for a numbered enhe peer to turn RAs on.
 	 */
-	peer->ifp ? zclient_send_interface_radv_req(bgp_zclient, bgp->vrf_id,
-						    peer->ifp, 1, ra_interval)
+	peer->ifp ? (void)zclient_send_interface_radv_req(bgp_zclient, bgp->vrf_id,
+							  peer->ifp, 1, ra_interval)
 		  : bgp_nht_reg_enhe_cap_intfs(peer);
 }
 
@@ -2680,8 +2680,8 @@ void bgp_zebra_terminate_radv(struct bgp *bgp, struct peer *peer)
 	 * If we don't have an ifp pointer, call function to find the
 	 * ifps for a numbered enhe peer to turn RAs off.
 	 */
-	peer->ifp ? zclient_send_interface_radv_req(bgp_zclient, bgp->vrf_id,
-						    peer->ifp, 0, 0)
+	peer->ifp ? (void)zclient_send_interface_radv_req(bgp_zclient, bgp->vrf_id,
+							  peer->ifp, 0, 0)
 		  : bgp_nht_dereg_enhe_cap_intfs(peer);
 }
 
@@ -3099,6 +3099,7 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 	afi_t afi;
 	safi_t safi;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp *bgp;
 	struct bgp_path_info *pi, *new_select;
 	struct bgp_debug_vrf dv = {
@@ -3219,6 +3220,7 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 	}
 
 	return 0;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /* this function is used to forge ip rule,

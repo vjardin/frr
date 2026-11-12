@@ -666,6 +666,7 @@ int bgp_ls_update(struct bgp *bgp, struct bgp_ls_nlri *nlri, struct bgp_ls_attr 
 	struct prefix p;
 
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 
 	if (!bgp || !nlri) {
 		flog_err(EC_BGP_LS_PACKET, "BGP-LS: Invalid parameters to %s", __func__);
@@ -751,6 +752,7 @@ int bgp_ls_update(struct bgp *bgp, struct bgp_ls_nlri *nlri, struct bgp_ls_attr 
 	aspath_unintern(&attr.aspath);
 
 	return 0;
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 

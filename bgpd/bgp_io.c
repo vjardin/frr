@@ -261,6 +261,8 @@ static void bgp_process_reads(struct event *event)
 	 * back-pressure: if we stop reading, the TCP window fills up,
 	 * slowing the sender.
 	 */
+	bool inq_full = false;
+
 	frr_with_mutex (&connection->io_mtx) {
 		if (connection->ibuf->count >= bm->inq_limit) {
 			if (!ibuf_full_logged) {
@@ -269,10 +271,13 @@ static void bgp_process_reads(struct event *event)
 						   peer->host, bm->inq_limit);
 				ibuf_full_logged = true;
 			}
-			return;
+			inq_full = true;
+			break;
 		}
 		ibuf_full_logged = false;
 	}
+	if (inq_full)
+		return;
 
 	frr_with_mutex (&connection->io_mtx) {
 		status = bgp_read(connection, &code);
@@ -367,9 +372,9 @@ static uint16_t bgp_write(struct peer_connection *connection)
 
 	wpkt_quanta_old = atomic_load_explicit(&peer->bgp->wpkt_quanta,
 					       memory_order_relaxed);
-	struct stream *ostreams[wpkt_quanta_old];
+	FRR_VLA(struct stream *, ostreams, wpkt_quanta_old);
 	struct stream **streams = ostreams;
-	struct iovec iov[wpkt_quanta_old];
+	FRR_VLA(struct iovec, iov, wpkt_quanta_old);
 
 	s = stream_fifo_head(connection->obuf);
 
@@ -377,7 +382,7 @@ static uint16_t bgp_write(struct peer_connection *connection)
 		goto done;
 
 	count = iovsz = 0;
-	while (count < wpkt_quanta_old && iovsz < array_size(iov) && s) {
+	while (count < wpkt_quanta_old && iovsz < wpkt_quanta_old && s) {
 		ostreams[iovsz] = s;
 		iov[iovsz].iov_base = stream_pnt(s);
 		iov[iovsz].iov_len = STREAM_READABLE(s);
@@ -422,7 +427,7 @@ static uint16_t bgp_write(struct peer_connection *connection)
 
 			assert(total_written < count);
 
-			memmove(&iov, &iov[msg_written],
+			memmove(iov, &iov[msg_written],
 				sizeof(iov[0]) * iovsz);
 			streams = &streams[msg_written];
 			stream_forward_getp(streams[0], num);

@@ -171,7 +171,7 @@ char *bgp_community2alias_str(const char *str)
 	int num, i;
 
 	frrstr_split(str, " ", &communities, &num);
-	const char *aliases[num];
+	FRR_VLA(const char *, aliases, num);
 
 	for (i = 0; i < num; i++)
 		aliases[i] = bgp_community2alias(communities[i]);

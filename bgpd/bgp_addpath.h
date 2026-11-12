@@ -17,11 +17,13 @@
 
 #define BGP_ADDPATH_TX_ID_FOR_DEFAULT_ORIGINATE 1
 
+#pragma pack(push, 1)
 struct bgp_paths_limit_capability {
 	uint16_t afi;
 	uint8_t safi;
 	uint16_t paths_limit;
 } __attribute__((packed));
+#pragma pack(pop)
 
 void bgp_addpath_init_bgp_data(struct bgp_addpath_bgp_data *d);
 

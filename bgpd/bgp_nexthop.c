@@ -652,6 +652,7 @@ bool bgp_multiaccess_check_v4(struct in_addr nexthop, struct peer *peer)
 {
 	struct bgp_dest *dest1 BGP_DEST_AUTOUNLOCK = NULL;
 	struct bgp_dest *dest2 BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct prefix p;
 	int ret;
 
@@ -675,12 +676,14 @@ bool bgp_multiaccess_check_v4(struct in_addr nexthop, struct peer *peer)
 
 	/* coverity[double_free] - aliased dest, locked by each bgp_node_match() */
 	return ret;
+	BGP_DEST_AUTOUNLOCK_END(dest1, dest2);
 }
 
 bool bgp_multiaccess_check_v6(struct in6_addr nexthop, struct peer *peer)
 {
 	struct bgp_dest *dest1 BGP_DEST_AUTOUNLOCK = NULL;
 	struct bgp_dest *dest2 BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct prefix p;
 	int ret;
 
@@ -704,6 +707,7 @@ bool bgp_multiaccess_check_v6(struct in6_addr nexthop, struct peer *peer)
 
 	/* coverity[double_free] - aliased dest, locked by each bgp_node_match() */
 	return ret;
+	BGP_DEST_AUTOUNLOCK_END(dest1, dest2);
 }
 
 bool bgp_subgrp_multiaccess_check_v6(struct in6_addr nexthop,
@@ -711,6 +715,7 @@ bool bgp_subgrp_multiaccess_check_v6(struct in6_addr nexthop,
 				     struct peer *exclude)
 {
 	struct bgp_dest *dest1 BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_dest *dest2 = NULL;
 	struct peer_af *paf = NULL;
 	struct prefix p = {0}, np = {0};
@@ -746,6 +751,7 @@ bool bgp_subgrp_multiaccess_check_v6(struct in6_addr nexthop,
 	}
 
 	return false;
+	BGP_DEST_AUTOUNLOCK_END(dest1);
 }
 
 bool bgp_subgrp_multiaccess_check_v4(struct in_addr nexthop,
@@ -753,6 +759,7 @@ bool bgp_subgrp_multiaccess_check_v4(struct in_addr nexthop,
 				     struct peer *exclude)
 {
 	struct bgp_dest *dest1 BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_dest *dest2;
 	struct peer_af *paf;
 	struct prefix p, np;
@@ -789,6 +796,7 @@ bool bgp_subgrp_multiaccess_check_v4(struct in_addr nexthop,
 	}
 
 	return false;
+	BGP_DEST_AUTOUNLOCK_END(dest1);
 }
 
 static void bgp_show_bgp_path_info_flags(uint32_t flags, json_object *json)

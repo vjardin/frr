@@ -4843,10 +4843,11 @@ DEFPY(bgp_default_afi_safi, bgp_default_afi_safi_cmd,
       "Activate l2vpn-evpn for a peer by default\n")
 {
 	VTY_DECLVAR_CONTEXT(bgp, bgp);
-	char afi_safi_str[strlen(afi_safi) + 1];
+	size_t afi_safi_len = strlen(afi_safi) + 1;
+	FRR_VLA(char, afi_safi_str, afi_safi_len);
 	char *afi_safi_str_tok;
 
-	strlcpy(afi_safi_str, afi_safi, sizeof(afi_safi_str));
+	strlcpy(afi_safi_str, afi_safi, afi_safi_len);
 	char *afi_str = strtok_r(afi_safi_str, "-", &afi_safi_str_tok);
 	char *safi_str = strtok_r(NULL, "-", &afi_safi_str_tok);
 	afi_t afi = bgp_vty_afi_from_str(afi_str);

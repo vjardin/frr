@@ -394,8 +394,12 @@ struct transit {
 
 /* "(void) 0" will generate a compiler error.  this is a safety check to
  * ensure we're not using a value that exceeds the bit size of attr->flag. */
+#if defined(_MSC_VER)
+#define ATTR_FLAG_BIT(X) (1ULL << ((X)-1))
+#else
 #define ATTR_FLAG_BIT(X)                                                       \
 	__builtin_choose_expr((X) >= 1 && (X) <= 64, 1ULL << ((X)-1), (void)0)
+#endif
 
 #define bgp_attr_exists(attr, id) CHECK_FLAG((attr)->flag, ATTR_FLAG_BIT(id))
 #define bgp_attr_set(attr, id) SET_FLAG((attr)->flag, ATTR_FLAG_BIT(id))

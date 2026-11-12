@@ -3034,7 +3034,7 @@ bool bgp_debug_aggregate(const struct prefix *p)
 	return false;
 }
 
-const char *bgp_debug_rdpfxpath2str(afi_t afi, safi_t safi,
+const char *(bgp_debug_rdpfxpath2str)(afi_t afi, safi_t safi,
 				    const struct prefix_rd *prd,
 				    union prefixconstptr pu,
 				    mpls_label_t *label, uint8_t num_labels,

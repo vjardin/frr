@@ -2447,6 +2447,7 @@ static void evpn_show_route_vni_multicast(struct vty *vty, struct bgp *bgp,
 	struct bgpevpn *vpn;
 	struct prefix_evpn p;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 	uint32_t path_cnt = 0;
 	afi_t afi;
@@ -2505,6 +2506,7 @@ static void evpn_show_route_vni_multicast(struct vty *vty, struct bgp *bgp,
 		vty_out(vty, "\nDisplayed %u paths for requested prefix\n",
 			path_cnt);
 	}
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /*
@@ -2519,6 +2521,7 @@ static void evpn_show_route_vni_macip(struct vty *vty, struct bgp *bgp,
 	struct prefix_evpn p;
 	struct prefix_evpn tmp_p;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 	uint32_t path_cnt = 0;
 	afi_t afi;
@@ -2627,6 +2630,7 @@ static void evpn_show_route_vni_macip(struct vty *vty, struct bgp *bgp,
 		vty_out(vty, "\nDisplayed %u paths for requested prefix\n",
 			path_cnt);
 	}
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /* Disaplay EVPN routes for a ESI - VTY handler */
@@ -2790,6 +2794,7 @@ static void evpn_show_route_rd_macip(struct vty *vty, struct bgp *bgp,
 {
 	struct prefix_evpn p;
 	struct bgp_dest *dest BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 	afi_t afi;
 	safi_t safi;
@@ -2841,6 +2846,7 @@ static void evpn_show_route_rd_macip(struct vty *vty, struct bgp *bgp,
 		vty_out(vty, "\nDisplayed %u paths for requested prefix\n",
 			path_cnt);
 	}
+	BGP_DEST_AUTOUNLOCK_END(dest);
 }
 
 /*
@@ -2853,6 +2859,7 @@ static void evpn_show_route_rd_prefix(struct vty *vty, struct bgp *bgp, struct p
 {
 	struct prefix_evpn p;
 	struct bgp_dest *rn BGP_DEST_AUTOUNLOCK = NULL;
+	BGP_DEST_AUTOUNLOCK_BEGIN;
 	struct bgp_path_info *pi;
 	afi_t afi;
 	safi_t safi;
@@ -2903,6 +2910,7 @@ static void evpn_show_route_rd_prefix(struct vty *vty, struct bgp *bgp, struct p
 	} else {
 		vty_out(vty, "\nDisplayed %u paths for requested prefix\n", path_cnt);
 	}
+	BGP_DEST_AUTOUNLOCK_END(rn);
 }
 
 /*
