@@ -781,6 +781,8 @@ static void check_connect(struct event *t_write)
 		return;
 	}
 
+	/* the timer of wakeup_connect_hanging() */
+	event_cancel(&dmn->t_wakeup);
 	daemon_up(dmn, "delayed connect succeeded");
 }
 
