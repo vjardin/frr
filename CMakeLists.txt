@@ -44,11 +44,16 @@ list(GET _frr_py 1 FRR_PYTHONHOME)
 list(GET _frr_py 2 _frr_pylib)
 file(TO_CMAKE_PATH "${FRR_PYTHON_INCLUDE}" FRR_PYTHON_INCLUDE)
 file(TO_CMAKE_PATH "${FRR_PYTHONHOME}" FRR_PYTHONHOME)
-find_library(FRR_PYTHON_LIBRARY NAMES ${_frr_pylib}
-	HINTS "${FRR_PYTHONHOME}/libs" NO_DEFAULT_PATH REQUIRED)
-add_library(frr_python INTERFACE)
-target_include_directories(frr_python INTERFACE "${FRR_PYTHON_INCLUDE}")
-target_link_libraries(frr_python INTERFACE "${FRR_PYTHON_LIBRARY}")
+
+set(FRR_HOST_CLIPPY "" CACHE FILEPATH
+	"clippy.exe of a native build, for a build of another architecture")
+if(NOT FRR_HOST_CLIPPY)
+	find_library(FRR_PYTHON_LIBRARY NAMES ${_frr_pylib}
+		HINTS "${FRR_PYTHONHOME}/libs" NO_DEFAULT_PATH REQUIRED)
+	add_library(frr_python INTERFACE)
+	target_include_directories(frr_python INTERFACE "${FRR_PYTHON_INCLUDE}")
+	target_link_libraries(frr_python INTERFACE "${FRR_PYTHON_LIBRARY}")
+endif()
 find_package(Perl REQUIRED)
 find_program(FRR_BISON NAMES win_bison bison REQUIRED)
 find_program(FRR_FLEX NAMES win_flex flex REQUIRED)
@@ -208,33 +213,38 @@ set_source_files_properties(lib/win32/compat.c PROPERTIES
 	COMPILE_DEFINITIONS FRR_WIN32_COMPAT_IMPL)
 
 # clippy (CLI definition preprocessor, embeds Python)
-add_executable(clippy
-	lib/jhash.c
-	lib/clippy.c
-	lib/command_graph.c
-	lib/command_py.c
-	lib/graph.c
-	lib/libfrr_trace.c
-	lib/memory.c
-	lib/typesafe.c
-	lib/vector.c
-	lib/win32/clippy_noelf.c
-	"${FRR_BLD}/lib/command_lex.c"
-	"${FRR_BLD}/lib/command_parse.c"
-	"${FRR_BLD}/lib/defun_lex.c"
-	$<TARGET_OBJECTS:frr_win32>
-)
-add_dependencies(clippy frr_genheaders)
-frr_target_setup(clippy)
-target_compile_definitions(clippy PRIVATE BUILDING_CLIPPY)
-target_link_libraries(clippy PRIVATE frr_python)
-foreach(_dll python3.dll "python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.dll")
-	if(EXISTS "${FRR_PYTHONHOME}/${_dll}")
-		add_custom_command(TARGET clippy POST_BUILD
-			COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-				"${FRR_PYTHONHOME}/${_dll}" "$<TARGET_FILE_DIR:clippy>")
-	endif()
-endforeach()
+if(FRR_HOST_CLIPPY)
+	add_executable(clippy IMPORTED)
+	set_target_properties(clippy PROPERTIES IMPORTED_LOCATION "${FRR_HOST_CLIPPY}")
+else()
+	add_executable(clippy
+		lib/jhash.c
+		lib/clippy.c
+		lib/command_graph.c
+		lib/command_py.c
+		lib/graph.c
+		lib/libfrr_trace.c
+		lib/memory.c
+		lib/typesafe.c
+		lib/vector.c
+		lib/win32/clippy_noelf.c
+		"${FRR_BLD}/lib/command_lex.c"
+		"${FRR_BLD}/lib/command_parse.c"
+		"${FRR_BLD}/lib/defun_lex.c"
+		$<TARGET_OBJECTS:frr_win32>
+	)
+	add_dependencies(clippy frr_genheaders)
+	frr_target_setup(clippy)
+	target_compile_definitions(clippy PRIVATE BUILDING_CLIPPY)
+	target_link_libraries(clippy PRIVATE frr_python)
+	foreach(_dll python3.dll "python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}.dll")
+		if(EXISTS "${FRR_PYTHONHOME}/${_dll}")
+			add_custom_command(TARGET clippy POST_BUILD
+				COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+					"${FRR_PYTHONHOME}/${_dll}" "$<TARGET_FILE_DIR:clippy>")
+		endif()
+	endforeach()
+endif()
 
 # DEFPY: foo.c includes foo_clippy.c
 function(frr_clippy outvar)
