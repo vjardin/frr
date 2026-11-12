@@ -26,6 +26,8 @@
 extern "C" {
 #endif
 
+DECLARE_MTYPE(ZIF_DESC);
+
 /* For interface configuration. */
 #define IF_ZEBRA_DATA_UNSPEC 0
 #define IF_ZEBRA_DATA_ON 1
