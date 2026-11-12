@@ -62,7 +62,8 @@ find_path(LIBYANG_INCLUDE_DIR libyang/libyang.h
 find_library(LIBYANG_LIBRARY yang HINTS "${FRR_DEPS_PREFIX}/lib" REQUIRED)
 find_file(LIBYANG_DLL yang.dll HINTS "${FRR_DEPS_PREFIX}/lib" "${FRR_DEPS_PREFIX}/bin")
 
-set(FRR_VTYSH_DAEMON_NAMES zebra mgmtd bgpd ripd ripngd ospfd ospf6d)
+set(FRR_VTYSH_DAEMON_NAMES zebra mgmtd bgpd ripd ripngd ospfd ospf6d
+	staticd eigrpd babeld bfdd sharpd)
 if(FRR_NPCAP_SDK)
 	if(CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM64")
 		set(_frr_npcap_lib "${FRR_NPCAP_SDK}/Lib/ARM64")
@@ -238,13 +239,17 @@ function(frr_clippy outvar)
 	set(_out)
 	foreach(_src ${ARGN})
 		string(REGEX REPLACE "\\.c$" "_clippy.c" _gen "${_src}")
-		add_custom_command(
-			OUTPUT "${FRR_BLD}/${_gen}"
-			COMMAND "${CMAKE_COMMAND}" -E env "PYTHONHOME=${FRR_PYTHONHOME}"
-				$<TARGET_FILE:clippy> "${FRR_SRC}/python/clidef.py"
-				-o "${FRR_BLD}/${_gen}" "${FRR_SRC}/${_src}"
-			DEPENDS clippy "${FRR_SRC}/${_src}" "${FRR_SRC}/python/clidef.py"
-			COMMENT "CLIPPY ${_src}")
+		get_property(_done GLOBAL PROPERTY FRR_GENERATED)
+		if(NOT "${FRR_BLD}/${_gen}" IN_LIST _done)
+			add_custom_command(
+				OUTPUT "${FRR_BLD}/${_gen}"
+				COMMAND "${CMAKE_COMMAND}" -E env "PYTHONHOME=${FRR_PYTHONHOME}"
+					$<TARGET_FILE:clippy> "${FRR_SRC}/python/clidef.py"
+					-o "${FRR_BLD}/${_gen}" "${FRR_SRC}/${_src}"
+				DEPENDS clippy "${FRR_SRC}/${_src}" "${FRR_SRC}/python/clidef.py"
+				COMMENT "CLIPPY ${_src}")
+			set_property(GLOBAL APPEND PROPERTY FRR_GENERATED "${FRR_BLD}/${_gen}")
+		endif()
 		list(APPEND _out "${FRR_BLD}/${_gen}")
 	endforeach()
 	set(${outvar} ${_out} PARENT_SCOPE)
@@ -659,21 +664,25 @@ set(MGMTD_SOURCES
 	mgmtd/mgmt_vty_frontend.c
 	mgmtd/mgmt_main.c
 )
-set(MGMTD_BE_NB_SOURCES
+add_library(mgmt_be_nb OBJECT
 	mgmtd/mgmt_be_nb.c
 	zebra/zebra_cli.c
 	ripd/rip_cli.c
 	ripngd/ripng_cli.c
+	staticd/static_vty.c
 )
-set_source_files_properties(${MGMTD_BE_NB_SOURCES} PROPERTIES
-	COMPILE_DEFINITIONS INCLUDE_MGMTD_CMDDEFS_ONLY)
+frr_target_setup(mgmt_be_nb "${FRR_SRC}/lib/win32/assert")
+target_compile_definitions(mgmt_be_nb PRIVATE INCLUDE_MGMTD_CMDDEFS_ONLY)
+target_link_libraries(mgmt_be_nb PRIVATE json-c::json-c PCRE2::POSIX)
+add_dependencies(mgmt_be_nb frr_genheaders frr_lib_clippy mgmtd_clippy)
 frr_daemon(mgmtd
-	SOURCES ${MGMTD_SOURCES} ${MGMTD_BE_NB_SOURCES}
+	SOURCES ${MGMTD_SOURCES} $<TARGET_OBJECTS:mgmt_be_nb>
 	CLIPPY
 		mgmtd/mgmt_vty.c
 		zebra/zebra_cli.c
 		ripd/rip_cli.c
 		ripngd/ripng_cli.c
+		staticd/static_vty.c
 	YANG
 		yang/frr-zebra.yang
 		yang/frr-zebra-route-map.yang
@@ -682,6 +691,7 @@ frr_daemon(mgmtd
 		yang/frr-bfdd.yang
 		yang/frr-ripd.yang
 		yang/frr-ripngd.yang
+		yang/frr-staticd.yang
 )
 
 # ripd, ripngd
@@ -890,6 +900,123 @@ foreach(_daemon isisd fabricd)
 	target_link_options(${_daemon} PRIVATE /DELAYLOAD:wpcap.dll)
 endforeach()
 endif()
+
+frr_daemon(staticd
+	SOURCES
+		staticd/static_bfd.c
+		staticd/static_trace.c
+		staticd/static_debug.c
+		staticd/static_nht.c
+		staticd/static_routes.c
+		staticd/static_zebra.c
+		staticd/static_vrf.c
+		staticd/static_vty.c
+		staticd/static_nb.c
+		staticd/static_nb_config.c
+		staticd/static_srv6.c
+		staticd/static_main.c
+	CLIPPY
+		staticd/static_vty.c
+	YANG
+		yang/frr-bfdd.yang
+		yang/frr-staticd.yang
+)
+
+frr_daemon(eigrpd
+	SOURCES
+		eigrpd/eigrp_cli.c
+		eigrpd/eigrp_dump.c
+		eigrpd/eigrp_errors.c
+		eigrpd/eigrp_filter.c
+		eigrpd/eigrp_fsm.c
+		eigrpd/eigrp_hello.c
+		eigrpd/eigrp_interface.c
+		eigrpd/eigrp_main.c
+		eigrpd/eigrp_metric.c
+		eigrpd/eigrp_neighbor.c
+		eigrpd/eigrp_network.c
+		eigrpd/eigrp_northbound.c
+		eigrpd/eigrp_packet.c
+		eigrpd/eigrp_query.c
+		eigrpd/eigrp_reply.c
+		eigrpd/eigrp_siaquery.c
+		eigrpd/eigrp_siareply.c
+		eigrpd/eigrp_snmp.c
+		eigrpd/eigrp_topology.c
+		eigrpd/eigrp_update.c
+		eigrpd/eigrp_vrf.c
+		eigrpd/eigrp_vty.c
+		eigrpd/eigrp_zebra.c
+		eigrpd/eigrpd.c
+	CLIPPY
+		eigrpd/eigrp_cli.c
+		eigrpd/eigrp_vty.c
+	YANG
+		yang/frr-eigrpd.yang
+)
+
+frr_daemon(babeld
+	SOURCES
+		babeld/babel_errors.c
+		babeld/babel_filter.c
+		babeld/babel_interface.c
+		babeld/babel_main.c
+		babeld/babel_zebra.c
+		babeld/babeld.c
+		babeld/kernel.c
+		babeld/message.c
+		babeld/neighbour.c
+		babeld/net.c
+		babeld/resend.c
+		babeld/route.c
+		babeld/source.c
+		babeld/util.c
+		babeld/xroute.c
+	CLIPPY
+		babeld/babel_interface.c
+		babeld/babeld.c
+)
+
+frr_daemon(bfdd
+	SOURCES
+		bfdd/bfd.c
+		bfdd/bfdd_nb.c
+		bfdd/bfdd_nb_config.c
+		bfdd/bfdd_nb_state.c
+		bfdd/bfdd_vty.c
+		bfdd/bfdd_cli.c
+		bfdd/bfd_packet.c
+		bfdd/dplane.c
+		bfdd/event.c
+		bfdd/ptm_adapter.c
+		bfdd/bfd_trace.c
+		bfdd/bfdd.c
+	CLIPPY
+		bfdd/bfdd_cli.c
+		bfdd/bfdd_vty.c
+	YANG
+		yang/frr-bfdd.yang
+)
+
+frr_daemon(sharpd
+	SOURCES
+		sharpd/sharp_nht.c
+		sharpd/sharp_zebra.c
+		sharpd/sharp_vty.c
+		sharpd/sharp_logpump.c
+		sharpd/sharp_main.c
+	CLIPPY
+		sharpd/sharp_vty.c
+)
+
+frr_daemon(watchfrr
+	SOURCES
+		watchfrr/watchfrr.c
+		watchfrr/watchfrr_errors.c
+		watchfrr/watchfrr_vty.c
+	CLIPPY
+		watchfrr/watchfrr_vty.c
+)
 
 set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
 set(FRR_XREFS)
