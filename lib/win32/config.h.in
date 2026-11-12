@@ -55,6 +55,14 @@
 /* ospfd -a: the OSPF API server, for clients of the LSA database */
 #define SUPPORT_OSPF_API 1
 
+#cmakedefine HAVE_ISISD 1
+#cmakedefine HAVE_FABRICD 1
+#define ISIS_METHOD_PFPACKET 1
+#define ISIS_METHOD_DLPI 2
+#define ISIS_METHOD_BPF 3
+#define ISIS_METHOD_NPCAP 4
+#define ISIS_METHOD ISIS_METHOD_NPCAP
+
 /* daemons listen for vtysh on an AF_UNIX socket (Windows 10 1803+) */
 #define VTYSH 1
 #define HAVE_CLOCK_MONOTONIC 1
