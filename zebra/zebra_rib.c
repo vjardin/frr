@@ -4285,9 +4285,9 @@ void route_entry_dump_nh(const struct route_entry *re, const char *straddr,
  * standard debug log. Calling function name and IP prefix in
  * question are passed as 1st and 2nd arguments.
  */
-void _route_entry_dump(const char *func, union prefixconstptr pp,
-		       union prefixconstptr src_pp,
-		       const struct route_entry *re)
+void (_route_entry_dump)(const char *func, union prefixconstptr pp,
+			 union prefixconstptr src_pp,
+			 const struct route_entry *re)
 {
 	const struct prefix *src_p = src_pp.p;
 	bool is_srcdst = src_p && src_p->prefixlen;

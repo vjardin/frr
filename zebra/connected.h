@@ -19,9 +19,15 @@ extern "C" {
 
 extern struct connected *connected_check(struct interface *ifp,
 					 union prefixconstptr p);
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define connected_check(a0, a1) connected_check(a0, PFX_CPTR(a1))
+#endif
 extern struct connected *connected_check_ptp(struct interface *ifp,
 					     union prefixconstptr p,
 					     union prefixconstptr d);
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define connected_check_ptp(a0, a1, a2) connected_check_ptp(a0, PFX_CPTR(a1), PFX_CPTR(a2))
+#endif
 
 extern void connected_add_ipv4(struct interface *ifp, int flags,
 			       const struct in_addr *addr, uint16_t prefixlen,

@@ -369,6 +369,10 @@ int rib_handle_nhg_replace(struct nhg_hash_entry *old_entry,
 extern void _route_entry_dump(const char *func, union prefixconstptr pp,
 			      union prefixconstptr src_pp,
 			      const struct route_entry *re);
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define _route_entry_dump(a0, a1, a2, a3)                                      \
+	_route_entry_dump(a0, PFX_CPTR(a1), PFX_CPTR(a2), a3)
+#endif
 
 void zebra_rib_route_entry_free(struct route_entry *re);
 

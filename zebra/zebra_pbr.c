@@ -1219,6 +1219,9 @@ static const char *zebra_pbr_prefix2str(union prefixconstptr pu,
 	}
 	return prefix2str(pu, str, size);
 }
+#ifdef FRR_NO_TRANSPARENT_UNION
+#define zebra_pbr_prefix2str(a0, a1, a2) zebra_pbr_prefix2str(PFX_CPTR(a0), a1, a2)
+#endif
 
 static void zebra_pbr_display_icmp(struct vty *vty,
 				   struct zebra_pbr_ipset_entry *zpie)

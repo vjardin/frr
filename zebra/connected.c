@@ -80,8 +80,8 @@ static void connected_announce(struct interface *ifp, struct connected *ifc)
 }
 
 /* If same interface address is already exist... */
-struct connected *connected_check(struct interface *ifp,
-				  union prefixconstptr pu)
+struct connected *(connected_check)(struct interface *ifp,
+				    union prefixconstptr pu)
 {
 	const struct prefix *p = pu.p;
 	struct connected *ifc;
@@ -94,9 +94,9 @@ struct connected *connected_check(struct interface *ifp,
 }
 
 /* same, but with peer address */
-struct connected *connected_check_ptp(struct interface *ifp,
-				      union prefixconstptr pu,
-				      union prefixconstptr du)
+struct connected *(connected_check_ptp)(struct interface *ifp,
+					union prefixconstptr pu,
+					union prefixconstptr du)
 {
 	const struct prefix *p = pu.p;
 	const struct prefix *d = du.p;
