@@ -1076,3 +1076,10 @@ endif()
 
 install(TARGETS ${FRR_VTYSH_DAEMONS} RUNTIME DESTINATION sbin)
 install(TARGETS vtysh RUNTIME DESTINATION bin)
+
+install(CODE "
+	file(GLOB _frr_dlls \"${FRR_BLD}/*.dll\")
+	list(FILTER _frr_dlls EXCLUDE REGEX \"/python[0-9]*\\\\.dll$\")
+	file(INSTALL \${_frr_dlls} DESTINATION \"\${CMAKE_INSTALL_PREFIX}/sbin\")
+	file(INSTALL \${_frr_dlls} DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+")
