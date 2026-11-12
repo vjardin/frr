@@ -34,9 +34,6 @@ char backup_config_file[256];
 
 bool mpls_enabled;
 
-zebra_capabilities_t _caps_p[] = {
-};
-
 struct zebra_privs_t static_privs = {
 #if defined(FRR_USER) && defined(FRR_GROUP)
 	.user = FRR_USER,
@@ -45,8 +42,7 @@ struct zebra_privs_t static_privs = {
 #if defined(VTY_GROUP)
 	.vty_group = VTY_GROUP,
 #endif
-	.caps_p = _caps_p,
-	.cap_num_p = array_size(_caps_p),
+	.cap_num_p = 0,
 	.cap_num_i = 0};
 
 struct option longopts[] = { { 0 } };
