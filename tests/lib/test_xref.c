@@ -43,6 +43,11 @@ static void check_xref(const struct xref *xref, bool *found, bool *error)
 	const char *file = xref->file, *p;
 
 	p = strrchr(file, '/');
+#ifdef _WIN32
+	/* __FILE__ has backslashes with MSVC */
+	if (!p)
+		p = strrchr(file, '\\');
+#endif
 	if (p)
 		file = p + 1;
 
