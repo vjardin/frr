@@ -199,6 +199,7 @@ class CommandEntry:
 
         defun_file = os.path.relpath(self._spec["defun"]["file"], frr_top_src)
         defun_path = pathlib.Path(defun_file)
+        defun_file = defun_path.as_posix()
 
         if defun_path.parts[0] != "lib":
             if "." not in path.name:
@@ -535,15 +536,31 @@ class CommandEntry:
 def main():
     argp = argparse.ArgumentParser(description="FRR xref to vtysh defs")
     argp.add_argument(
-        "xreffile", metavar="XREFFILE", type=str, help=".xref file to read"
+        "xreffile",
+        metavar="XREFFILE",
+        type=str,
+        nargs="+",
+        help=".xref file(s) to read",
+    )
+    argp.add_argument(
+        "-c", dest="vtysh_cmds", type=str, help="write vtysh_cmd.c", nargs="*"
     )
     argp.add_argument("-Werror", action="store_const", const=True)
     args = argp.parse_args()
 
-    with open(args.xreffile, "r") as fd:
-        data = json.load(fd)
+    data = {"cli": {}}
+    for xreffile in args.xreffile:
+        with open(xreffile, "r") as fd:
+            for cmd, items in json.load(fd).get("cli", {}).items():
+                data["cli"].setdefault(cmd, {}).update(items)
 
-    CommandEntry.run(data, sys.stdout)
+    if args.vtysh_cmds:
+        fds = [open(filename, "w") for filename in args.vtysh_cmds]
+        CommandEntry.run(data, fds)
+        for fd in fds:
+            fd.close()
+    else:
+        CommandEntry.run(data, [sys.stdout])
 
     if args.Werror and CommandEntry.warn_counter:
         sys.exit(1)
