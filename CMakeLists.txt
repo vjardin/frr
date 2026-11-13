@@ -72,6 +72,23 @@ find_path(LIBYANG_INCLUDE_DIR libyang/libyang.h
 find_library(LIBYANG_LIBRARY yang HINTS "${FRR_DEPS_PREFIX}/lib" REQUIRED)
 find_file(LIBYANG_DLL yang.dll HINTS "${FRR_DEPS_PREFIX}/lib" "${FRR_DEPS_PREFIX}/bin")
 
+set(FRR_LUA "" CACHE PATH "Prefix of a Lua 5.3 install (include/, lib/, bin/)")
+set(FRR_LUA_LIBS)
+if(FRR_LUA)
+	find_path(LUA_INCLUDE_DIR lua.h HINTS "${FRR_LUA}/include" NO_DEFAULT_PATH REQUIRED)
+	find_library(LUA_LIBRARY NAMES lua lua53 HINTS "${FRR_LUA}/lib" NO_DEFAULT_PATH
+		REQUIRED)
+	find_file(LUA_DLL NAMES lua.dll lua53.dll HINTS "${FRR_LUA}/bin" NO_DEFAULT_PATH)
+	file(STRINGS "${LUA_INCLUDE_DIR}/lua.h" _frr_lua_ver
+		REGEX "^#define LUA_VERSION_(MAJOR|MINOR)[ \t]+\"[0-9]+\"")
+	if(NOT _frr_lua_ver MATCHES "MAJOR[ \t]+\"5\".*MINOR[ \t]+\"3\"")
+		message(FATAL_ERROR "${LUA_INCLUDE_DIR}/lua.h is not Lua 5.3")
+	endif()
+	set(HAVE_SCRIPTING 1)
+	set(FRR_LUA_LIBS "${LUA_LIBRARY}")
+	message(STATUS "Scripting with Lua 5.3 from ${FRR_LUA}")
+endif()
+
 set(FRR_VTYSH_DAEMON_NAMES zebra mgmtd bgpd ripd ripngd ospfd ospf6d
 	staticd eigrpd babeld bfdd sharpd)
 if(FRR_NPCAP_SDK)
@@ -125,6 +142,7 @@ set(FRR_C_INCLUDES
 	"${FRR_SRC}/lib"
 	"${FRR_BLD}/lib"
 	"${LIBYANG_INCLUDE_DIR}"
+	${LUA_INCLUDE_DIR}
 )
 
 function(frr_target_setup tgt)
@@ -474,7 +492,7 @@ add_library(frr OBJECT
 add_custom_target(frr_lib_clippy DEPENDS ${FRR_LIB_CLIPPY_GEN})
 add_dependencies(frr frr_genheaders frr_lib_clippy)
 frr_target_setup(frr "${FRR_SRC}/lib/assert")
-target_link_libraries(frr PUBLIC json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}")
+target_link_libraries(frr PUBLIC json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}" ${FRR_LUA_LIBS})
 
 enable_language(RC)
 get_filename_component(_frr_rc_dir "${CMAKE_RC_COMPILER}" DIRECTORY)
@@ -504,7 +522,7 @@ function(frr_daemon name)
 	add_dependencies(${name} frr_genheaders ${name}_clippy frr_lib_clippy)
 	frr_target_setup(${name} "${FRR_SRC}/lib/assert")
 	target_link_libraries(${name} PRIVATE
-		json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}" ${_d_LIBS})
+		json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}" ${FRR_LUA_LIBS} ${_d_LIBS})
 	list(APPEND FRR_DAEMONS ${name})
 	set(FRR_DAEMONS ${FRR_DAEMONS} PARENT_SCOPE)
 endfunction()
@@ -1101,6 +1119,9 @@ set(FRR_RUNTIME_DLLS)
 if(LIBYANG_DLL)
 	list(APPEND FRR_RUNTIME_DLLS "${LIBYANG_DLL}")
 endif()
+if(LUA_DLL)
+	list(APPEND FRR_RUNTIME_DLLS "${LUA_DLL}")
+endif()
 foreach(_dll dl.dll pthreadVC3.dll pcre2-8.dll)
 	find_file(_frr_dll_${_dll} ${_dll}
 		HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
@@ -1146,7 +1167,7 @@ if(FRR_TESTS)
 		frr_target_setup(${name} ${_assert} "${FRR_SRC}/tests/lib"
 			"${FRR_SRC}/tests/helpers/c" "${FRR_SRC}/tests")
 		target_link_libraries(${name} PRIVATE
-			json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}")
+			json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}" ${FRR_LUA_LIBS})
 		set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${FRR_TEST_DIR}")
 		if(FRR_RUNTIME_DLLS)
 			add_custom_command(TARGET ${name} POST_BUILD
@@ -1192,6 +1213,16 @@ if(FRR_TESTS)
 				"${FRR_SRC}/tests/lib/test_${_t}.py"
 			WORKING_DIRECTORY "${FRR_BLD}/tests")
 	endforeach()
+
+	if(HAVE_SCRIPTING)
+		frr_test(test_frrlua SOURCES tests/lib/test_frrlua.c)
+		frr_test(test_frrscript SOURCES tests/lib/test_frrscript.c)
+		file(COPY tests/lib/script1.lua DESTINATION "${FRR_TEST_DIR}")
+		foreach(_t frrlua frrscript)
+			add_test(NAME test_${_t} COMMAND test_${_t}
+				WORKING_DIRECTORY "${FRR_BLD}/tests")
+		endforeach()
+	endif()
 
 	frr_test(test_segv SOURCES tests/lib/test_segv.c)
 	# keep the NULL store of func1()

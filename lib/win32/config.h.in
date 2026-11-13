@@ -69,6 +69,9 @@
 
 #cmakedefine HAVE_ISISD 1
 #cmakedefine HAVE_FABRICD 1
+
+/* scripting: with -DFRR_LUA=<prefix of Lua 5.3> */
+#cmakedefine HAVE_SCRIPTING 1
 #define ISIS_METHOD_PFPACKET 1
 #define ISIS_METHOD_DLPI 2
 #define ISIS_METHOD_BPF 3
