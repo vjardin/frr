@@ -57,6 +57,7 @@ find_program(FRR_FLEX NAMES win_flex flex REQUIRED)
 
 find_package(json-c CONFIG REQUIRED)
 find_package(pcre2 CONFIG REQUIRED COMPONENTS POSIX)
+find_package(unofficial-readline-win32 CONFIG REQUIRED)
 
 find_path(LIBYANG_INCLUDE_DIR libyang/libyang.h
 	HINTS "${FRR_DEPS_PREFIX}/include" REQUIRED)
@@ -96,8 +97,6 @@ set(FRR_C_INCLUDES
 	"${FRR_BLD}/lib"
 	"${LIBYANG_INCLUDE_DIR}"
 )
-# INFINITY of babeld.h and of <math.h>
-target_compile_options(babeld PRIVATE -Wno-macro-redefined)
 
 function(frr_target_setup tgt)
 	target_compile_options(${tgt} PRIVATE ${FRR_C_OPTIONS})
@@ -549,6 +548,214 @@ set(BGPD_YANG
 )
 frr_daemon(bgpd SOURCES ${BGPD_SOURCES} CLIPPY ${BGPD_CLIPPY} YANG ${BGPD_YANG})
 
+set(ZEBRA_SOURCES
+	zebra/if_win32.c
+	zebra/ipforward_win32.c
+	zebra/kernel_win32.c
+	zebra/rt_win32.c
+	zebra/connected.c
+	zebra/debug.c
+	zebra/if_socket.c
+	zebra/interface.c
+	zebra/label_manager.c
+	zebra/main.c
+	zebra/redistribute.c
+	zebra/router-id.c
+	zebra/rtadv.c
+	zebra/rule_socket.c
+	zebra/table_manager.c
+	zebra/tc_socket.c
+	zebra/zapi_msg.c
+	zebra/zebra_affinitymap.c
+	zebra/zebra_dplane.c
+	zebra/zebra_errors.c
+	zebra/zebra_gr.c
+	zebra/zebra_l2.c
+	zebra/zebra_l2_bridge_if.c
+	zebra/zebra_evpn.c
+	zebra/zebra_evpn_mac.c
+	zebra/zebra_evpn_neigh.c
+	zebra/zebra_mlag.c
+	zebra/zebra_mlag_vty.c
+	zebra/zebra_mpls.c
+	zebra/zebra_mpls_null.c
+	zebra/zebra_mpls_vty.c
+	zebra/zebra_srv6.c
+	zebra/zebra_srv6_vty.c
+	zebra/zebra_mroute.c
+	zebra/zebra_nb.c
+	zebra/zebra_nb_config.c
+	zebra/zebra_nb_rpcs.c
+	zebra/zebra_nb_state.c
+	zebra/zebra_netns_id.c
+	zebra/zebra_netns_notify.c
+	zebra/zebra_nhg.c
+	zebra/zebra_ns.c
+	zebra/zebra_opaque.c
+	zebra/zebra_pbr.c
+	zebra/zebra_ptm.c
+	zebra/zebra_ptm_redistribute.c
+	zebra/zebra_pw.c
+	zebra/zebra_rib.c
+	zebra/zebra_router.c
+	zebra/zebra_rnh.c
+	zebra/zebra_routemap.c
+	zebra/zebra_routemap_nb.c
+	zebra/zebra_routemap_nb_config.c
+	zebra/zebra_script.c
+	zebra/zebra_srte.c
+	zebra/zebra_tc.c
+	zebra/zebra_trace.c
+	zebra/zebra_vrf.c
+	zebra/zebra_vty.c
+	zebra/zebra_vxlan.c
+	zebra/zebra_vxlan_if.c
+	zebra/zebra_evpn_mh.c
+	zebra/zebra_neigh.c
+	zebra/zserv.c
+)
+set(ZEBRA_CLIPPY
+	zebra/debug.c
+	zebra/interface.c
+	zebra/rtadv.c
+	zebra/zebra_mlag_vty.c
+	zebra/zebra_routemap.c
+	zebra/zebra_vty.c
+	zebra/zebra_srv6_vty.c
+	zebra/zebra_vrf.c
+	zebra/zserv.c
+	zebra/label_manager.c
+)
+set(ZEBRA_YANG
+	yang/frr-zebra.yang
+	yang/frr-zebra-route-map.yang
+)
+frr_daemon(zebra SOURCES ${ZEBRA_SOURCES} CLIPPY ${ZEBRA_CLIPPY} YANG ${ZEBRA_YANG}
+	LIBS iphlpapi)
+
+set(MGMTD_SOURCES
+	mgmtd/mgmt.c
+	mgmtd/mgmt_ds.c
+	mgmtd/mgmt_be_adapter.c
+	mgmtd/mgmt_fe_adapter.c
+	mgmtd/mgmt_history.c
+	mgmtd/mgmt_memory.c
+	mgmtd/mgmt_txn.c
+	mgmtd/mgmt_txn_cfg.c
+	mgmtd/mgmt_vty.c
+	mgmtd/mgmt_vty_frontend.c
+	mgmtd/mgmt_main.c
+)
+set(MGMTD_BE_NB_SOURCES
+	mgmtd/mgmt_be_nb.c
+	zebra/zebra_cli.c
+	ripd/rip_cli.c
+	ripngd/ripng_cli.c
+)
+set_source_files_properties(${MGMTD_BE_NB_SOURCES} PROPERTIES
+	COMPILE_DEFINITIONS INCLUDE_MGMTD_CMDDEFS_ONLY)
+frr_daemon(mgmtd
+	SOURCES ${MGMTD_SOURCES} ${MGMTD_BE_NB_SOURCES}
+	CLIPPY
+		mgmtd/mgmt_vty.c
+		zebra/zebra_cli.c
+		ripd/rip_cli.c
+		ripngd/ripng_cli.c
+	YANG
+		yang/frr-zebra.yang
+		yang/frr-zebra-route-map.yang
+		yang/ietf/ietf-netconf.yang
+		yang/ietf/ietf-netconf-with-defaults.yang
+		yang/frr-bfdd.yang
+		yang/frr-ripd.yang
+		yang/frr-ripngd.yang
+)
+
+# ripd, ripngd
+
+frr_daemon(ripd
+	SOURCES
+		ripd/rip_bfd.c
+		ripd/rip_debug.c
+		ripd/rip_errors.c
+		ripd/rip_interface.c
+		ripd/rip_offset.c
+		ripd/rip_main.c
+		ripd/rip_nb.c
+		ripd/rip_nb_config.c
+		ripd/rip_nb_rpcs.c
+		ripd/rip_nb_notifications.c
+		ripd/rip_nb_state.c
+		ripd/rip_peer.c
+		ripd/rip_routemap.c
+		ripd/rip_zebra.c
+		ripd/ripd.c
+	CLIPPY
+		ripd/rip_bfd.c
+	YANG
+		yang/frr-ripd.yang
+		yang/frr-bfdd.yang
+)
+
+frr_daemon(ripngd
+	SOURCES
+		ripngd/ripng_debug.c
+		ripngd/ripng_interface.c
+		ripngd/ripng_nexthop.c
+		ripngd/ripng_offset.c
+		ripngd/ripng_main.c
+		ripngd/ripng_nb.c
+		ripngd/ripng_nb_config.c
+		ripngd/ripng_nb_rpcs.c
+		ripngd/ripng_nb_state.c
+		ripngd/ripng_peer.c
+		ripngd/ripng_route.c
+		ripngd/ripng_routemap.c
+		ripngd/ripng_zebra.c
+		ripngd/ripngd.c
+	YANG
+		yang/frr-ripngd.yang
+)
+
+set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
+set(FRR_XREFS)
+foreach(_daemon ${FRR_VTYSH_DAEMONS})
+	set(_xref "${FRR_BLD}/${_daemon}.xref")
+	add_custom_command(
+		OUTPUT "${_xref}"
+		COMMAND "${CMAKE_COMMAND}" -E env "FRR_XREF_DUMP=${_xref}"
+			$<TARGET_FILE:${_daemon}>
+		DEPENDS ${_daemon}
+		COMMENT "XREF ${_daemon}")
+	list(APPEND FRR_XREFS "${_xref}")
+endforeach()
+# vtysh_cmd.c and its 8 parts, as "xrelfo.py -c"
+set(FRR_VTYSH_CMDS "${FRR_BLD}/vtysh/vtysh_cmd.c")
+foreach(_i RANGE 1 8)
+	list(APPEND FRR_VTYSH_CMDS "${FRR_BLD}/vtysh/vtysh_cmd.${_i}.c")
+endforeach()
+add_custom_command(
+	OUTPUT ${FRR_VTYSH_CMDS}
+	COMMAND "${CMAKE_COMMAND}" -E env "PYTHONHOME=${FRR_PYTHONHOME}"
+		$<TARGET_FILE:clippy> "${FRR_SRC}/python/xref2vtysh.py"
+		${FRR_XREFS} -c ${FRR_VTYSH_CMDS}
+	DEPENDS clippy ${FRR_XREFS} "${FRR_SRC}/python/xref2vtysh.py"
+	COMMENT "VTYSH commands")
+
+frr_daemon(vtysh
+	SOURCES
+		vtysh/vtysh_main.c
+		vtysh/vtysh.c
+		vtysh/vtysh_user.c
+		vtysh/vtysh_config.c
+		vtysh/vtysh_win32.c
+		${FRR_VTYSH_CMDS}
+	CLIPPY
+		vtysh/vtysh.c
+	LIBS
+		unofficial::readline-win32::readline
+)
+
 set(FRR_RUNTIME_DLLS)
 if(LIBYANG_DLL)
 	list(APPEND FRR_RUNTIME_DLLS "${LIBYANG_DLL}")
@@ -569,4 +776,5 @@ if(FRR_RUNTIME_DLLS)
 	endforeach()
 endif()
 
-install(TARGETS ${FRR_DAEMONS} RUNTIME DESTINATION sbin)
+install(TARGETS ${FRR_VTYSH_DAEMONS} RUNTIME DESTINATION sbin)
+install(TARGETS vtysh RUNTIME DESTINATION bin)
