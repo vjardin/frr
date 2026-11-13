@@ -29,9 +29,53 @@
 
 DEFINE_MTYPE_STATIC(ZEBRA, WIN32_ROUTES, "Windows routes");
 
+#define WIN32_PROTO_FRR ((NL_ROUTE_PROTOCOL)200)
+
+static NL_ROUTE_PROTOCOL win32_route_type2proto(int type)
+{
+	switch (type) {
+	case ZEBRA_ROUTE_BGP:
+		return MIB_IPPROTO_BGP;
+	case ZEBRA_ROUTE_RIP:
+	case ZEBRA_ROUTE_RIPNG:
+		return MIB_IPPROTO_RIP;
+	case ZEBRA_ROUTE_OSPF:
+	case ZEBRA_ROUTE_OSPF6:
+		return MIB_IPPROTO_OSPF;
+	case ZEBRA_ROUTE_ISIS:
+		return MIB_IPPROTO_IS_IS;
+	case ZEBRA_ROUTE_EIGRP:
+		return MIB_IPPROTO_EIGRP;
+	default:
+		return WIN32_PROTO_FRR;
+	}
+}
+
+/* ZEBRA_ROUTE_KERNEL unless zebra installed the route. */
+static int win32_route_proto2type(NL_ROUTE_PROTOCOL proto, int family)
+{
+	switch ((int)proto) {
+	case MIB_IPPROTO_BGP:
+		return ZEBRA_ROUTE_BGP;
+	case MIB_IPPROTO_RIP:
+		return family == AF_INET ? ZEBRA_ROUTE_RIP : ZEBRA_ROUTE_RIPNG;
+	case MIB_IPPROTO_OSPF:
+		return family == AF_INET ? ZEBRA_ROUTE_OSPF : ZEBRA_ROUTE_OSPF6;
+	case MIB_IPPROTO_IS_IS:
+		return ZEBRA_ROUTE_ISIS;
+	case MIB_IPPROTO_EIGRP:
+		return ZEBRA_ROUTE_EIGRP;
+	case WIN32_PROTO_FRR:
+		return ZEBRA_ROUTE_STATIC;
+	default:
+		return ZEBRA_ROUTE_KERNEL;
+	}
+}
+
 /* One next hop of a route of the system. */
 struct win32_route {
 	struct prefix p;
+	int type; /* ZEBRA_ROUTE_KERNEL, or the protocol zebra installed it for */
 	uint32_t metric;
 	union g_addr gate; /* unspecified when the prefix is on-link */
 	ifindex_t ifindex;
@@ -51,6 +95,10 @@ static int win32_route_group_cmp(const struct win32_route *a, const struct win32
 	int ret;
 
 	ret = prefix_cmp(&a->p, &b->p);
+	if (ret)
+		return ret;
+
+	ret = numcmp(a->type, b->type);
 	if (ret)
 		return ret;
 
@@ -142,7 +190,9 @@ static bool win32_route_convert(const MIB_IPFORWARD_ROW2 *row, uint32_t interfac
 		return false;
 	}
 	route->p.prefixlen = row->DestinationPrefix.PrefixLength;
-	route->metric = row->Metric + interface_metric;
+	route->type = win32_route_proto2type(row->Protocol, dest->si_family);
+	if (route->type == ZEBRA_ROUTE_KERNEL)
+		route->metric = row->Metric + interface_metric;
 	route->ifindex = row->InterfaceIndex;
 
 	return true;
@@ -171,11 +221,15 @@ static void win32_route_add(const struct win32_route *route, size_t count, bool 
 	struct prefix p = route->p;
 	struct route_entry *re;
 	struct nexthop *nexthop;
+	uint32_t flags = 0;
 	size_t i;
 
+	if (route->type != ZEBRA_ROUTE_KERNEL)
+		flags = ZEBRA_FLAG_SELFROUTE;
+
 	if (IS_ZEBRA_DEBUG_KERNEL)
-		zlog_debug("%s: %pFX metric %u, %zu nexthop(s)", __func__, &p, route->metric,
-			   count);
+		zlog_debug("%s: %pFX %s metric %u, %zu nexthop(s)", __func__, &p,
+			   zebra_route_string(route->type), route->metric, count);
 
 	for (i = 0; i < count; i++) {
 		nexthop = nexthop_new();
@@ -183,7 +237,7 @@ static void win32_route_add(const struct win32_route *route, size_t count, bool 
 		nexthop_group_add_sorted(&ng, nexthop);
 	}
 
-	re = zebra_rib_route_entry_new(VRF_DEFAULT, ZEBRA_ROUTE_KERNEL, 0, 0, 0, rt_table_main_id,
+	re = zebra_rib_route_entry_new(VRF_DEFAULT, route->type, 0, flags, 0, rt_table_main_id,
 				       route->metric, 0, 0, 0);
 
 	/* takes a copy of the next hops; replaces the route if it is known */
@@ -221,8 +275,9 @@ void win32_route_sync(bool startup)
 {
 	MIB_IPINTERFACE_TABLE *interfaces = NULL;
 	MIB_IPFORWARD_TABLE2 *table = NULL;
-	struct win32_route *routes = NULL;
-	size_t count = 0;
+	struct win32_route *routes = NULL, *self = NULL;
+	struct win32_route route;
+	size_t count = 0, nself = 0;
 	size_t o = 0, n = 0;
 	DWORD rc;
 	ULONG i;
@@ -238,8 +293,11 @@ void win32_route_sync(bool startup)
 	if (GetIpInterfaceTable(AF_UNSPEC, &interfaces) != ERROR_SUCCESS)
 		interfaces = NULL;
 
-	if (table->NumEntries)
+	if (table->NumEntries) {
 		routes = XCALLOC(MTYPE_WIN32_ROUTES, table->NumEntries * sizeof(*routes));
+		if (startup)
+			self = XCALLOC(MTYPE_WIN32_ROUTES, table->NumEntries * sizeof(*self));
+	}
 
 	for (i = 0; i < table->NumEntries; i++) {
 		const MIB_IPFORWARD_ROW2 *row = &table->Table[i];
@@ -247,9 +305,14 @@ void win32_route_sync(bool startup)
 		if (!win32_route_wanted(row))
 			continue;
 
-		if (win32_route_convert(row, win32_interface_metric(interfaces, row),
-					&routes[count]))
-			count++;
+		if (!win32_route_convert(row, win32_interface_metric(interfaces, row), &route))
+			continue;
+
+		/* zebra knows what it installed, except when it starts */
+		if (route.type == ZEBRA_ROUTE_KERNEL)
+			routes[count++] = route;
+		else if (startup)
+			self[nself++] = route;
 	}
 
 	FreeMibTable(table);
@@ -296,6 +359,15 @@ void win32_route_sync(bool startup)
 	XFREE(MTYPE_WIN32_ROUTES, win32_routes);
 	win32_routes = routes;
 	win32_route_count = count;
+
+	/* what a previous zebra installed and did not remove */
+	if (nself)
+		qsort(self, nself, sizeof(*self), win32_route_cmp);
+	for (n = 0; n < nself; n += o) {
+		o = win32_route_group_len(self, nself, n);
+		win32_route_add(&self[n], o, true);
+	}
+	XFREE(MTYPE_WIN32_ROUTES, self);
 }
 
 void win32_route_fini(void)
@@ -338,26 +410,195 @@ void vlan_read(struct zebra_ns *zns)
 {
 }
 
-enum zebra_dplane_result kernel_route_update(struct zebra_dplane_ctx *ctx)
+/*
+ * One next hop of a route, as a row of the system's table. False when
+ * Windows does not have such route: blackholes, IPv4 prefixes with IPv6 next hops,
+ * etc.
+ */
+static bool win32_route_row(MIB_IPFORWARD_ROW2 *row, const struct prefix *p,
+			    const struct nexthop *nexthop, int type)
 {
-	static bool warned;
+	InitializeIpForwardEntry(row);
+	row->InterfaceIndex = nexthop->ifindex;
+	row->DestinationPrefix.PrefixLength = (UINT8)p->prefixlen;
+	row->Metric = ROUTE_INSTALLATION_METRIC;
+	row->Protocol = win32_route_type2proto(type);
 
-	/* nothing was installed, so there is nothing to remove either */
-	if (dplane_ctx_get_op(ctx) == DPLANE_OP_ROUTE_DELETE)
-		return ZEBRA_DPLANE_REQUEST_SUCCESS;
-
-	if (RSYSTEM_ROUTE(dplane_ctx_get_type(ctx)))
-		return ZEBRA_DPLANE_REQUEST_SUCCESS;
-
-	if (!warned) {
-		warned = true;
-		flog_err(EC_LIB_UNAVAILABLE,
-			 "Installing routes into the Windows routing table is not implemented: %pFX and the following ones stay out of it",
-			 dplane_ctx_get_dest(ctx));
+	switch (p->family) {
+	case AF_INET:
+		row->DestinationPrefix.Prefix.Ipv4.sin_family = AF_INET;
+		row->DestinationPrefix.Prefix.Ipv4.sin_addr = p->u.prefix4;
+		row->NextHop.Ipv4.sin_family = AF_INET;
+		break;
+	case AF_INET6:
+		row->DestinationPrefix.Prefix.Ipv6.sin6_family = AF_INET6;
+		row->DestinationPrefix.Prefix.Ipv6.sin6_addr = p->u.prefix6;
+		row->NextHop.Ipv6.sin6_family = AF_INET6;
+		break;
+	default:
+		return false;
 	}
 
-	dplane_ctx_set_errno(ctx, ENOTSUP);
-	return ZEBRA_DPLANE_REQUEST_FAILURE;
+	switch (nexthop->type) {
+	case NEXTHOP_TYPE_IPV4:
+	case NEXTHOP_TYPE_IPV4_IFINDEX:
+		if (p->family != AF_INET)
+			return false;
+		row->NextHop.Ipv4.sin_addr = nexthop->gate.ipv4;
+		break;
+	case NEXTHOP_TYPE_IPV6:
+	case NEXTHOP_TYPE_IPV6_IFINDEX:
+		if (p->family != AF_INET6)
+			return false;
+		row->NextHop.Ipv6.sin6_addr = nexthop->gate.ipv6;
+		break;
+	case NEXTHOP_TYPE_IFINDEX:
+		/* on-link: the next hop stays unspecified */
+		break;
+	case NEXTHOP_TYPE_BLACKHOLE:
+		return false;
+	}
+
+	return row->InterfaceIndex != 0;
+}
+
+static bool win32_route_row_same(const MIB_IPFORWARD_ROW2 *a, const MIB_IPFORWARD_ROW2 *b)
+{
+	return a->InterfaceIndex == b->InterfaceIndex &&
+	       !memcmp(&a->NextHop, &b->NextHop, sizeof(a->NextHop));
+}
+
+static void win32_route_uninstall(const struct prefix *p, const struct nexthop_group *ng,
+				  int type, const struct nexthop_group *keep, int keep_type)
+{
+	MIB_IPFORWARD_ROW2 row, keep_row;
+	struct nexthop *nexthop, *kept;
+	DWORD rc;
+
+	for (ALL_NEXTHOPS_PTR(ng, nexthop)) {
+		if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
+			continue;
+		if (!win32_route_row(&row, p, nexthop, type))
+			continue;
+
+		kept = NULL;
+		if (keep) {
+			for (ALL_NEXTHOPS_PTR(keep, kept)) {
+				if (!CHECK_FLAG(kept->flags, NEXTHOP_FLAG_RECURSIVE) &&
+				    CHECK_FLAG(kept->flags, NEXTHOP_FLAG_ACTIVE) &&
+				    win32_route_row(&keep_row, p, kept, keep_type) &&
+				    win32_route_row_same(&row, &keep_row))
+					break;
+			}
+		}
+		if (kept)
+			continue;
+
+		rc = DeleteIpForwardEntry2(&row);
+		if (IS_ZEBRA_DEBUG_KERNEL)
+			zlog_debug("%s: %pFX nexthop %pNHs: %lu", __func__, p, nexthop, rc);
+		if (rc != ERROR_SUCCESS && rc != ERROR_NOT_FOUND)
+			flog_err(EC_LIB_SYSTEM_CALL,
+				 "Could not remove route %pFX nexthop %pNHs: DeleteIpForwardEntry2() error %lu",
+				 p, nexthop, rc);
+	}
+}
+
+static int win32_route_install(const struct prefix *p, const struct nexthop_group *ng, int type)
+{
+	static bool warned_rights, warned_nexthop;
+	MIB_IPFORWARD_ROW2 row;
+	struct nexthop *nexthop;
+	int installed = 0;
+	DWORD rc;
+
+	for (ALL_NEXTHOPS_PTR(ng, nexthop)) {
+		if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
+			continue;
+		if (!CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE))
+			continue;
+
+		if (!win32_route_row(&row, p, nexthop, type)) {
+			if (!warned_nexthop) {
+				warned_nexthop = true;
+				flog_warn(EC_LIB_UNAVAILABLE,
+					  "Windows has no route like %pFX nexthop %pNHs: it and the following ones stay out of the routing table",
+					  p, nexthop);
+			}
+			return ENOTSUP;
+		}
+
+		rc = CreateIpForwardEntry2(&row);
+		/* left by a previous zebra, or of the protocol this one
+		 * replaces: the row only has to change hands
+		 */
+		if (rc == ERROR_OBJECT_ALREADY_EXISTS)
+			rc = SetIpForwardEntry2(&row);
+		if (IS_ZEBRA_DEBUG_KERNEL)
+			zlog_debug("%s: %pFX nexthop %pNHs: %lu", __func__, p, nexthop, rc);
+
+		if (rc == ERROR_ACCESS_DENIED) {
+			if (!warned_rights) {
+				warned_rights = true;
+				flog_err(EC_LIB_SYSTEM_CALL,
+					 "No right to change the Windows routing table: %pFX and the following routes stay out of it. zebra has to run as Administrator to install routes",
+					 p);
+			}
+			return EACCES;
+		}
+		if (rc != ERROR_SUCCESS) {
+			flog_err(EC_LIB_SYSTEM_CALL,
+				 "Could not install route %pFX nexthop %pNHs: CreateIpForwardEntry2() error %lu",
+				 p, nexthop, rc);
+			return EINVAL;
+		}
+		installed++;
+	}
+
+	return installed ? 0 : ENOENT;
+}
+
+enum zebra_dplane_result kernel_route_update(struct zebra_dplane_ctx *ctx)
+{
+	const struct prefix *p = dplane_ctx_get_dest(ctx);
+	const struct nexthop_group *ng = dplane_ctx_get_ng(ctx);
+	int type = dplane_ctx_get_type(ctx);
+	enum dplane_op_e op = dplane_ctx_get_op(ctx);
+	int err = 0;
+
+	if (dplane_ctx_get_src(ctx) != NULL) {
+		zlog_err("route add: IPv6 sourcedest routes unsupported!");
+		return ZEBRA_DPLANE_REQUEST_FAILURE;
+	}
+
+	if (op == DPLANE_OP_ROUTE_DELETE) {
+		if (!RSYSTEM_ROUTE(type))
+			win32_route_uninstall(p, ng, type, NULL, 0);
+	} else if (op == DPLANE_OP_ROUTE_INSTALL) {
+		if (!RSYSTEM_ROUTE(type))
+			err = win32_route_install(p, ng, type);
+		if (err)
+			win32_route_uninstall(p, ng, type, NULL, 0);
+	} else if (op == DPLANE_OP_ROUTE_UPDATE) {
+		if (!RSYSTEM_ROUTE(type))
+			err = win32_route_install(p, ng, type);
+		if (!RSYSTEM_ROUTE(dplane_ctx_get_old_type(ctx)))
+			win32_route_uninstall(p, dplane_ctx_get_old_ng(ctx),
+					      dplane_ctx_get_old_type(ctx),
+					      (err || RSYSTEM_ROUTE(type)) ? NULL : ng, type);
+		if (err)
+			win32_route_uninstall(p, ng, type, NULL, 0);
+	} else {
+		zlog_err("Invalid route update op %s (%u)", dplane_op2str(op), op);
+		return ZEBRA_DPLANE_REQUEST_FAILURE;
+	}
+
+	if (err) {
+		dplane_ctx_set_errno(ctx, err);
+		return ZEBRA_DPLANE_REQUEST_FAILURE;
+	}
+
+	return ZEBRA_DPLANE_REQUEST_SUCCESS;
 }
 
 #endif /* _WIN32 */
