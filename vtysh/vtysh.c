@@ -4311,6 +4311,7 @@ DEFUN (vtysh_write_memory,
 		/* first attempt to use watchfrr if it's available */
 		bool used_watchfrr = false;
 
+#ifndef _WIN32
 		for (i = 0; i < array_size(vtysh_client); i++)
 			if (vtysh_client[i].flag == VTYSH_WATCHFRR)
 				break;
@@ -4319,13 +4320,16 @@ DEFUN (vtysh_write_memory,
 			ret = vtysh_client_execute(&vtysh_client[i],
 						   "do write integrated");
 		}
+#endif
 
 		/*
 		 * If we didn't use watchfrr, fallback to writing the config
 		 * ourselves
 		 */
 		if (!used_watchfrr) {
+#ifndef _WIN32
 			printf("\nWarning: attempting direct configuration write without watchfrr.\nFile permissions and ownership may be incorrect, or write may fail.\n\n");
+#endif
 			ret = vtysh_write_config_integrated();
 		}
 		return ret;
@@ -4758,6 +4762,15 @@ static void execute_command(const char *command, char *argv[])
 	pid_t pid;
 	int status;
 
+#ifdef _WIN32
+	/* no fork(): start the command and wait for it */
+	execute_flag = 1;
+	if (_spawnvp(_P_WAIT, command, (const char *const *)argv) == -1)
+		fprintf(stderr, "Can't execute %s: %s\n", command, safe_strerror(errno));
+	execute_flag = 0;
+	return;
+#endif
+
 	/* Call fork(). */
 	pid = fork();
 
@@ -4994,7 +5007,7 @@ DEFUN(clear,
       "Clear the terminal\n")
 {
 	rl_clear_screen(0, 0);
-#ifdef __OpenBSD__
+#if defined(__OpenBSD__) || !defined(HAVE_RL_CLEAR_VISIBLE_LINE)
 	rl_refresh_line(0, 0);
 #else
 	rl_clear_visible_line();
