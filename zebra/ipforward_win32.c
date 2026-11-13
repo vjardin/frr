@@ -10,6 +10,9 @@
 
 #ifdef _WIN32
 
+#include "lib/log.h"
+#include "lib/lib_errors.h"
+
 #include "zebra/kernel_win32.h"
 #include "zebra/ipforward.h"
 
@@ -24,23 +27,37 @@ static int win32_forwarding(ULONG family)
 	return stats.dwForwarding == MIB_IP_FORWARDING;
 }
 
+static int win32_forwarding_set(ULONG family, bool on)
+{
+	MIB_IPSTATS stats = {};
+	DWORD rc;
+
+	stats.dwForwarding = on ? MIB_IP_FORWARDING : MIB_IP_NOT_FORWARDING;
+	stats.dwDefaultTTL = MIB_USE_CURRENT_TTL;
+
+	rc = SetIpStatisticsEx(&stats, family);
+	if (rc != ERROR_SUCCESS)
+		flog_err(EC_LIB_SYSTEM_CALL,
+			 "Could not turn %s forwarding %s: SetIpStatisticsEx() error %lu%s",
+			 family == AF_INET ? "IPv4" : "IPv6", on ? "on" : "off", rc,
+			 rc == ERROR_ACCESS_DENIED ? " (zebra must run as Administrator)" : "");
+
+	return win32_forwarding(family);
+}
+
 int ipforward(void)
 {
 	return win32_forwarding(AF_INET);
 }
 
-/*
- * Only reading the system's state for now: these report it unchanged, so
- * that asking for a change that did not happen is reported as a failure.
- */
 int ipforward_on(void)
 {
-	return ipforward();
+	return win32_forwarding_set(AF_INET, true);
 }
 
 int ipforward_off(void)
 {
-	return ipforward();
+	return win32_forwarding_set(AF_INET, false);
 }
 
 int ipforward_ipv6(void)
@@ -50,12 +67,12 @@ int ipforward_ipv6(void)
 
 int ipforward_ipv6_on(void)
 {
-	return ipforward_ipv6();
+	return win32_forwarding_set(AF_INET6, true);
 }
 
 int ipforward_ipv6_off(void)
 {
-	return ipforward_ipv6();
+	return win32_forwarding_set(AF_INET6, false);
 }
 
 #endif /* _WIN32 */
