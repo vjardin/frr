@@ -135,7 +135,7 @@ add_custom_command(
 
 add_custom_command(
 	OUTPUT "${FRR_BLD}/lib/vtysh_daemons.h"
-	COMMAND "${PERL_EXECUTABLE}" "${FRR_SRC}/vtysh/daemons.pl" zebra mgmtd bgpd ripd ripngd
+	COMMAND "${PERL_EXECUTABLE}" "${FRR_SRC}/vtysh/daemons.pl" zebra mgmtd bgpd ripd ripngd ospfd ospf6d
 		> "${FRR_BLD}/lib/vtysh_daemons.h"
 	DEPENDS "${FRR_SRC}/vtysh/daemons.pl"
 	COMMENT "Generating lib/vtysh_daemons.h")
@@ -715,6 +715,103 @@ frr_daemon(ripngd
 		ripngd/ripngd.c
 	YANG
 		yang/frr-ripngd.yang
+)
+
+# ospfd, ospf6d
+
+frr_daemon(ospfd
+	SOURCES
+		ospfd/ospf_abr.c
+		ospfd/ospf_api.c
+		ospfd/ospf_apiserver.c
+		ospfd/ospf_asbr.c
+		ospfd/ospf_ase.c
+		ospfd/ospf_bfd.c
+		ospfd/ospf_dump.c
+		ospfd/ospf_dump_api.c
+		ospfd/ospf_errors.c
+		ospfd/ospf_ext.c
+		ospfd/ospf_flood.c
+		ospfd/ospf_gr.c
+		ospfd/ospf_ia.c
+		ospfd/ospf_interface.c
+		ospfd/ospf_ism.c
+		ospfd/ospf_ldp_sync.c
+		ospfd/ospf_lsa.c
+		ospfd/ospf_lsdb.c
+		ospfd/ospf_memory.c
+		ospfd/ospf_neighbor.c
+		ospfd/ospf_network.c
+		ospfd/ospf_nsm.c
+		ospfd/ospf_opaque.c
+		ospfd/ospf_packet.c
+		ospfd/ospf_quicknbr.c
+		ospfd/ospf_ri.c
+		ospfd/ospf_route.c
+		ospfd/ospf_routemap.c
+		ospfd/ospf_routemap_nb.c
+		ospfd/ospf_routemap_nb_config.c
+		ospfd/ospf_spf.c
+		ospfd/ospf_ti_lfa.c
+		ospfd/ospf_sr.c
+		ospfd/ospf_te.c
+		ospfd/ospf_vty.c
+		ospfd/ospf_zebra.c
+		ospfd/ospfd.c
+		ospfd/ospf_gr_helper.c
+		ospfd/ospf_auth.c
+		ospfd/ospf_main.c
+	CLIPPY
+		ospfd/ospf_vty.c
+		ospfd/ospf_ldp_sync.c
+		ospfd/ospf_dump.c
+		ospfd/ospf_gr.c
+	YANG
+		yang/frr-ospf-route-map.yang
+)
+
+frr_daemon(ospf6d
+	SOURCES
+		ospf6d/ospf6_nssa.c
+		ospf6d/ospf6_abr.c
+		ospf6d/ospf6_area.c
+		ospf6d/ospf6_asbr.c
+		ospf6d/ospf6_routemap_nb.c
+		ospf6d/ospf6_routemap_nb_config.c
+		ospf6d/ospf6_bfd.c
+		ospf6d/ospf6_flood.c
+		ospf6d/ospf6_gr.c
+		ospf6d/ospf6_gr_helper.c
+		ospf6d/ospf6_interface.c
+		ospf6d/ospf6_intra.c
+		ospf6d/ospf6_lsa.c
+		ospf6d/ospf6_lsdb.c
+		ospf6d/ospf6_message.c
+		ospf6d/ospf6_neighbor.c
+		ospf6d/ospf6_network.c
+		ospf6d/ospf6_proto.c
+		ospf6d/ospf6_route.c
+		ospf6d/ospf6_spf.c
+		ospf6d/ospf6_top.c
+		ospf6d/ospf6_zebra.c
+		ospf6d/ospf6d.c
+		ospf6d/ospf6_auth_trailer.c
+		ospf6d/ospf6_main.c
+	CLIPPY
+		ospf6d/ospf6d.c
+		ospf6d/ospf6_top.c
+		ospf6d/ospf6_area.c
+		ospf6d/ospf6_asbr.c
+		ospf6d/ospf6_interface.c
+		ospf6d/ospf6_lsa.c
+		ospf6d/ospf6_gr_helper.c
+		ospf6d/ospf6_gr.c
+		ospf6d/ospf6_nssa.c
+		ospf6d/ospf6_route.c
+		ospf6d/ospf6_neighbor.c
+	YANG
+		yang/frr-ospf-route-map.yang
+		yang/frr-ospf6-route-map.yang
 )
 
 set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
