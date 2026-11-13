@@ -1102,6 +1102,16 @@ endfunction()
 
 set(FRR_MODULES)
 
+find_package(c-ares CONFIG)
+if(c-ares_FOUND)
+	set_source_files_properties(lib/resolver.c PROPERTIES COMPILE_OPTIONS
+		"/FI${FRR_SRC}/lib/win32/cares_win32.h")
+	frr_module(bgpd bmp
+		SOURCES bgpd/bgp_bmp.c
+		CLIPPY bgpd/bgp_bmp.c
+		LIB_SOURCES lib/resolver.c lib/win32/cares.c
+		LIBS c-ares::cares)
+endif()
 message(STATUS "Modules: ${FRR_MODULES}")
 
 set(FRR_VTYSH_DAEMONS ${FRR_DAEMONS})
