@@ -1,0 +1,2754 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Windows implementation of the POSIX subset used by FRR.
+ *
+ * Built with FRR_WIN32_COMPAT_IMPL defined, so the POSIX name redirections
+ * from frr_win32.h are not active here and the real CRT / Winsock functions
+ * can be called.
+ *
+ * Copyright (C) 2026 Vincent Jardin <vjardin@free.fr>
+ */
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/resource.h>
+#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <sys/file.h>
+#include <net/if.h>
+#include <syslog.h>
+#include <dlfcn.h>
+#include <getopt.h>
+#include <libgen.h>
+#include <pthread.h>
+#include <pwd.h>
+#include <crtdbg.h>
+
+#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "mswsock.lib")
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "advapi32.lib")
+
+static inline int clamp_int(size_t len)
+{
+	return len > INT_MAX ? INT_MAX : (int)len;
+}
+
+/* _get_osfhandle() gives an intptr_t */
+static inline HANDLE fd_handle(int fd)
+{
+	intptr_t h = _get_osfhandle(fd);
+
+	return (HANDLE)h;
+}
+
+static int wsa_errno(int w)
+{
+	switch (w) {
+	case WSAEWOULDBLOCK:
+		return EWOULDBLOCK;
+	case WSAEINPROGRESS:
+		return EINPROGRESS;
+	case WSAEALREADY:
+		return EALREADY;
+	case WSAENOTSOCK:
+		return ENOTSOCK;
+	case WSAEDESTADDRREQ:
+		return EDESTADDRREQ;
+	case WSAEMSGSIZE:
+		return EMSGSIZE;
+	case WSAEPROTOTYPE:
+		return EPROTOTYPE;
+	case WSAENOPROTOOPT:
+		return ENOPROTOOPT;
+	case WSAEPROTONOSUPPORT:
+		return EPROTONOSUPPORT;
+	case WSAESOCKTNOSUPPORT:
+		return ESOCKTNOSUPPORT;
+	case WSAEOPNOTSUPP:
+		return EOPNOTSUPP;
+	case WSAEPFNOSUPPORT:
+		return EPFNOSUPPORT;
+	case WSAEAFNOSUPPORT:
+		return EAFNOSUPPORT;
+	case WSAEADDRINUSE:
+		return EADDRINUSE;
+	case WSAEADDRNOTAVAIL:
+		return EADDRNOTAVAIL;
+	case WSAENETDOWN:
+		return ENETDOWN;
+	case WSAENETUNREACH:
+		return ENETUNREACH;
+	case WSAENETRESET:
+		return ENETRESET;
+	case WSAECONNABORTED:
+		return ECONNABORTED;
+	case WSAECONNRESET:
+		return ECONNRESET;
+	case WSAENOBUFS:
+		return ENOBUFS;
+	case WSAEISCONN:
+		return EISCONN;
+	case WSAENOTCONN:
+		return ENOTCONN;
+	case WSAESHUTDOWN:
+		return EPIPE;
+	case WSAETIMEDOUT:
+		return ETIMEDOUT;
+	case WSAECONNREFUSED:
+		return ECONNREFUSED;
+	case WSAELOOP:
+		return ELOOP;
+	case WSAENAMETOOLONG:
+		return ENAMETOOLONG;
+	case WSAEHOSTDOWN:
+		return EHOSTDOWN;
+	case WSAEHOSTUNREACH:
+		return EHOSTUNREACH;
+	case WSAEINTR:
+		return EINTR;
+	case WSAEBADF:
+		return EBADF;
+	case WSAEACCES:
+		return EACCES;
+	case WSAEFAULT:
+		return EFAULT;
+	case WSAEINVAL:
+		return EINVAL;
+	case WSAEMFILE:
+		return EMFILE;
+	default:
+		return EIO;
+	}
+}
+
+static int sock_fail(void)
+{
+	errno = wsa_errno(WSAGetLastError());
+	return -1;
+}
+
+static int win_errno(DWORD e)
+{
+	switch (e) {
+	case ERROR_FILE_NOT_FOUND:
+	case ERROR_PATH_NOT_FOUND:
+	case ERROR_INVALID_DRIVE:
+		return ENOENT;
+	case ERROR_ACCESS_DENIED:
+	case ERROR_SHARING_VIOLATION:
+	case ERROR_LOCK_VIOLATION:
+		return EACCES;
+	case ERROR_ALREADY_EXISTS:
+	case ERROR_FILE_EXISTS:
+		return EEXIST;
+	case ERROR_NOT_ENOUGH_MEMORY:
+	case ERROR_OUTOFMEMORY:
+		return ENOMEM;
+	case ERROR_INVALID_HANDLE:
+		return EBADF;
+	case ERROR_DIR_NOT_EMPTY:
+		return ENOTEMPTY;
+	case ERROR_NOT_SAME_DEVICE:
+		return EXDEV;
+	default:
+		return EINVAL;
+	}
+}
+
+static const char *const posix_errstr[] = {
+	[EADDRINUSE - 100] = "Address already in use",
+	[EADDRNOTAVAIL - 100] = "Cannot assign requested address",
+	[EAFNOSUPPORT - 100] = "Address family not supported by protocol",
+	[EALREADY - 100] = "Operation already in progress",
+	[EBADMSG - 100] = "Bad message",
+	[ECANCELED - 100] = "Operation canceled",
+	[ECONNABORTED - 100] = "Software caused connection abort",
+	[ECONNREFUSED - 100] = "Connection refused",
+	[ECONNRESET - 100] = "Connection reset by peer",
+	[EDESTADDRREQ - 100] = "Destination address required",
+	[EHOSTUNREACH - 100] = "No route to host",
+	[EIDRM - 100] = "Identifier removed",
+	[EINPROGRESS - 100] = "Operation now in progress",
+	[EISCONN - 100] = "Transport endpoint is already connected",
+	[ELOOP - 100] = "Too many levels of symbolic links",
+	[EMSGSIZE - 100] = "Message too long",
+	[ENETDOWN - 100] = "Network is down",
+	[ENETRESET - 100] = "Network dropped connection on reset",
+	[ENETUNREACH - 100] = "Network is unreachable",
+	[ENOBUFS - 100] = "No buffer space available",
+	[ENODATA - 100] = "No data available",
+	[ENOLINK - 100] = "Link has been severed",
+	[ENOMSG - 100] = "No message of desired type",
+	[ENOPROTOOPT - 100] = "Protocol not available",
+	[ENOSR - 100] = "Out of streams resources",
+	[ENOSTR - 100] = "Device not a stream",
+	[ENOTCONN - 100] = "Transport endpoint is not connected",
+	[ENOTRECOVERABLE - 100] = "State not recoverable",
+	[ENOTSOCK - 100] = "Socket operation on non-socket",
+	[EOPNOTSUPP - 100] = "Operation not supported",
+	[EOTHER - 100] = "Other error",
+	[EOVERFLOW - 100] = "Value too large for defined data type",
+	[EOWNERDEAD - 100] = "Owner died",
+	[EPROTO - 100] = "Protocol error",
+	[EPROTONOSUPPORT - 100] = "Protocol not supported",
+	[EPROTOTYPE - 100] = "Protocol wrong type for socket",
+	[ETIME - 100] = "Timer expired",
+	[ETIMEDOUT - 100] = "Connection timed out",
+	[ETXTBSY - 100] = "Text file busy",
+	[EWOULDBLOCK - 100] = "Resource temporarily unavailable",
+	[ESHUTDOWN - 100] = "Cannot send after transport endpoint shutdown",
+	[EHOSTDOWN - 100] = "Host is down",
+	[ESOCKTNOSUPPORT - 100] = "Socket type not supported",
+	[EPFNOSUPPORT - 100] = "Protocol family not supported",
+};
+
+char *frr_win_strerror(int errnum)
+{
+	if (errnum >= 100 && errnum - 100 < (int)(sizeof(posix_errstr) /
+						  sizeof(posix_errstr[0])) &&
+	    posix_errstr[errnum - 100])
+		return (char *)posix_errstr[errnum - 100];
+	return (strerror)(errnum);
+}
+
+int frr_win_strerror_r(int errnum, char *buf, size_t buflen)
+{
+	if (!buflen)
+		return ERANGE;
+	strncpy_s(buf, buflen, frr_win_strerror(errnum), _TRUNCATE);
+	return 0;
+}
+
+#define FD_TABLE_SIZE 8192
+
+static SOCKET fd_sock[FD_TABLE_SIZE];
+static bool fd_nonblock[FD_TABLE_SIZE];
+
+SOCKET frr_win_fd2sock(int fd)
+{
+	if (fd < 0 || fd >= FD_TABLE_SIZE || !fd_sock[fd])
+		return INVALID_SOCKET;
+	return fd_sock[fd];
+}
+
+int frr_win_is_socket(int fd)
+{
+	return frr_win_fd2sock(fd) != INVALID_SOCKET;
+}
+
+int frr_win_sock2fd(SOCKET s)
+{
+	for (int fd = 0; fd < FD_TABLE_SIZE; fd++)
+		if (fd_sock[fd] == s)
+			return fd;
+	return -1;
+}
+
+static int fd_alloc(SOCKET s)
+{
+	int fd;
+
+	if (s == INVALID_SOCKET)
+		return sock_fail();
+
+	fd = _open("NUL", _O_RDWR | _O_BINARY | _O_NOINHERIT);
+	if (fd < 0 || fd >= FD_TABLE_SIZE) {
+		if (fd >= 0)
+			_close(fd);
+		closesocket(s);
+		errno = EMFILE;
+		return -1;
+	}
+	SetHandleInformation((HANDLE)s, HANDLE_FLAG_INHERIT, 0);
+	fd_nonblock[fd] = false;
+	fd_sock[fd] = s;
+	return fd;
+}
+
+#define SOCK_OR_FAIL(var, fd)                                                  \
+	SOCKET var = frr_win_fd2sock(fd);                                      \
+	do {                                                                   \
+		if (var == INVALID_SOCKET) {                                   \
+			errno = ENOTSOCK;                                      \
+			return -1;                                             \
+		}                                                              \
+	} while (0)
+
+static int set_nonblock(int fd, SOCKET s, bool nb)
+{
+	u_long arg = nb;
+
+	if (ioctlsocket(s, FIONBIO, &arg))
+		return sock_fail();
+	fd_nonblock[fd] = nb;
+	return 0;
+}
+
+int frr_win_socket(int domain, int type, int protocol)
+{
+	int flags = type & (SOCK_NONBLOCK | SOCK_CLOEXEC);
+	int fd;
+
+	type &= ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	fd = fd_alloc(WSASocketW(domain, type, protocol, NULL, 0, 0));
+	if (fd >= 0 && (flags & SOCK_NONBLOCK))
+		set_nonblock(fd, fd_sock[fd], true);
+	if (fd >= 0 && type == SOCK_RAW &&
+	    (domain == AF_INET || domain == AF_INET6)) {
+		struct sockaddr_storage any = { .ss_family = (ADDRESS_FAMILY)domain };
+		DWORD off = 0, on = 1;
+
+		if (domain == AF_INET6)
+			setsockopt(fd_sock[fd], IPPROTO_IPV6, IPV6_V6ONLY,
+				   (char *)&on, sizeof(on));
+		bind(fd_sock[fd], (struct sockaddr *)&any,
+		     domain == AF_INET ? sizeof(struct sockaddr_in)
+				       : sizeof(struct sockaddr_in6));
+		if (domain == AF_INET)
+			setsockopt(fd_sock[fd], IPPROTO_IP, IP_MULTICAST_LOOP,
+				   (char *)&off, sizeof(off));
+		else
+			setsockopt(fd_sock[fd], IPPROTO_IPV6,
+				   IPV6_MULTICAST_LOOP, (char *)&off,
+				   sizeof(off));
+	}
+	return fd;
+}
+
+int frr_win_accept(int fd, struct sockaddr *addr, socklen_t *len)
+{
+	SOCK_OR_FAIL(s, fd);
+	SOCKET n = accept(s, addr, len);
+	int nfd;
+
+	if (n == INVALID_SOCKET)
+		return sock_fail();
+	nfd = fd_alloc(n);
+	if (nfd >= 0)
+		fd_nonblock[nfd] = fd_nonblock[fd];
+	return nfd;
+}
+
+int frr_win_bind(int fd, const struct sockaddr *addr, socklen_t len)
+{
+	SOCK_OR_FAIL(s, fd);
+	return bind(s, addr, len) ? sock_fail() : 0;
+}
+
+static void connect_bind_local(SOCKET s, const struct sockaddr *addr,
+			       socklen_t len)
+{
+	SOCKADDR_STORAGE local;
+	int llen = sizeof(local);
+	DWORD got = 0;
+
+	if (addr->sa_family != AF_INET && addr->sa_family != AF_INET6)
+		return;
+	/* bound already (update-source & co.) */
+	if (getsockname(s, (struct sockaddr *)&local, &llen) == 0)
+		return;
+	if (WSAIoctl(s, SIO_ROUTING_INTERFACE_QUERY, (void *)addr, len, &local,
+		     sizeof(local), &got, NULL, NULL))
+		return;
+	if (local.ss_family == AF_INET)
+		((struct sockaddr_in *)&local)->sin_port = 0;
+	else
+		((struct sockaddr_in6 *)&local)->sin6_port = 0;
+	bind(s, (struct sockaddr *)&local, (int)got);
+}
+
+int frr_win_connect(int fd, const struct sockaddr *addr, socklen_t len)
+{
+	SOCK_OR_FAIL(s, fd);
+
+	connect_bind_local(s, addr, len);
+	if (connect(s, addr, len) == 0)
+		return 0;
+	if (WSAGetLastError() == WSAEWOULDBLOCK) {
+		errno = EINPROGRESS;
+		return -1;
+	}
+	return sock_fail();
+}
+
+int frr_win_listen(int fd, int backlog)
+{
+	SOCK_OR_FAIL(s, fd);
+	return listen(s, backlog) ? sock_fail() : 0;
+}
+
+int frr_win_getsockopt(int fd, int level, int opt, void *val, socklen_t *len)
+{
+	SOCK_OR_FAIL(s, fd);
+	return getsockopt(s, level, opt, val, len) ? sock_fail() : 0;
+}
+
+int frr_win_setsockopt(int fd, int level, int opt, const void *val,
+		       socklen_t len)
+{
+	SOCK_OR_FAIL(s, fd);
+
+	if (level == SOL_SOCKET && (opt == SO_REUSEADDR || opt == SO_REUSEPORT))
+		return 0;
+	/* XXX IP_TOS and IPV6_TCLASS are refused (EACCES) unless a QoS policy is
+	 * set up: nothing useful to do or to report per socket
+	 */
+	if (level == IPPROTO_IP && opt == IP_TOS)
+		return 0;
+#ifdef IPV6_TCLASS
+	if (level == IPPROTO_IPV6 && opt == IPV6_TCLASS)
+		return 0;
+#endif
+	if (!setsockopt(s, level, opt, val, len))
+		return 0;
+	if (WSAGetLastError() == WSAEINVAL &&
+	    ((level == IPPROTO_IP && (opt == IP_ADD_MEMBERSHIP || opt == MCAST_JOIN_GROUP)) ||
+	     (level == IPPROTO_IPV6 &&
+	      (opt == IPV6_ADD_MEMBERSHIP || opt == MCAST_JOIN_GROUP)))) {
+		errno = EADDRINUSE;
+		return -1;
+	}
+	return sock_fail();
+}
+
+int frr_win_getsockname(int fd, struct sockaddr *addr, socklen_t *len)
+{
+	SOCK_OR_FAIL(s, fd);
+	return getsockname(s, addr, len) ? sock_fail() : 0;
+}
+
+int frr_win_getpeername(int fd, struct sockaddr *addr, socklen_t *len)
+{
+	SOCK_OR_FAIL(s, fd);
+	return getpeername(s, addr, len) ? sock_fail() : 0;
+}
+
+int frr_win_shutdown(int fd, int how)
+{
+	SOCK_OR_FAIL(s, fd);
+	return shutdown(s, how) ? sock_fail() : 0;
+}
+
+/* MSG_DONTWAIT does not exist on Windows: flip the socket */
+static bool dontwait_begin(int fd, SOCKET s, int *flags)
+{
+	if (!(*flags & MSG_DONTWAIT))
+		return false;
+	*flags &= ~MSG_DONTWAIT;
+	if (fd_nonblock[fd])
+		return false;
+	set_nonblock(fd, s, true);
+	return true;
+}
+
+static void dontwait_end(int fd, SOCKET s, bool restore)
+{
+	int saved = errno;
+
+	if (restore)
+		set_nonblock(fd, s, false);
+	errno = saved;
+}
+
+ssize_t frr_win_send(int fd, const void *buf, size_t len, int flags)
+{
+	SOCK_OR_FAIL(s, fd);
+	bool r = dontwait_begin(fd, s, &flags);
+	int n = send(s, buf, clamp_int(len), flags);
+	ssize_t ret = n == SOCKET_ERROR ? sock_fail() : n;
+
+	dontwait_end(fd, s, r);
+	return ret;
+}
+
+static int sock_read_fail(SOCKET s)
+{
+	WSAPROTOCOL_INFOW info;
+	int err = WSAGetLastError();
+	int len = sizeof(info);
+
+	if (err == WSAECONNRESET &&
+	    !getsockopt(s, SOL_SOCKET, SO_PROTOCOL_INFOW, (char *)&info, &len) &&
+	    info.iAddressFamily == AF_UNIX)
+		return 0;
+	errno = wsa_errno(err);
+	return -1;
+}
+
+ssize_t frr_win_recv(int fd, void *buf, size_t len, int flags)
+{
+	SOCK_OR_FAIL(s, fd);
+	bool r = dontwait_begin(fd, s, &flags);
+	int n = recv(s, buf, clamp_int(len), flags);
+	ssize_t ret = n == SOCKET_ERROR ? sock_read_fail(s) : n;
+
+	dontwait_end(fd, s, r);
+	return ret;
+}
+
+ssize_t frr_win_sendto(int fd, const void *buf, size_t len, int flags,
+		       const struct sockaddr *to, socklen_t tolen)
+{
+	SOCK_OR_FAIL(s, fd);
+	bool r = dontwait_begin(fd, s, &flags);
+	int n = sendto(s, buf, clamp_int(len), flags, to, tolen);
+	ssize_t ret = n == SOCKET_ERROR ? sock_fail() : n;
+
+	dontwait_end(fd, s, r);
+	return ret;
+}
+
+ssize_t frr_win_recvfrom(int fd, void *buf, size_t len, int flags,
+			 struct sockaddr *from, socklen_t *fromlen)
+{
+	SOCK_OR_FAIL(s, fd);
+	bool r = dontwait_begin(fd, s, &flags);
+	int n = recvfrom(s, buf, clamp_int(len), flags, from, fromlen);
+	ssize_t ret = n == SOCKET_ERROR ? sock_fail() : n;
+
+	dontwait_end(fd, s, r);
+	return ret;
+}
+
+#define IOV_STACK 16
+
+static WSABUF *iov_to_wsabuf(const struct iovec *iov, size_t cnt,
+			     WSABUF *stack)
+{
+	WSABUF *b = cnt <= IOV_STACK ? stack : malloc(cnt * sizeof(*b));
+
+	if (!b)
+		return NULL;
+	for (size_t i = 0; i < cnt; i++) {
+		b[i].buf = iov[i].iov_base;
+		b[i].len = (ULONG)iov[i].iov_len;
+	}
+	return b;
+}
+
+static int sock_type(SOCKET s)
+{
+	int type = 0, len = sizeof(type);
+
+	getsockopt(s, SOL_SOCKET, SO_TYPE, (char *)&type, &len);
+	return type;
+}
+
+static LPFN_WSARECVMSG wsarecvmsg_fn;
+
+static bool sendmsg_pktinfo_ifindex(SOCKET s, const struct msghdr *msg,
+				    struct sockaddr_in6 *dst)
+{
+	const struct cmsghdr *cmsg = msg->msg_control;
+	const struct in6_pktinfo *pi;
+	DWORD ifindex;
+
+	if (!cmsg || msg->msg_controllen < CMSG_LEN(sizeof(*pi)) ||
+	    msg->msg_controllen > CMSG_SPACE(sizeof(*pi)) ||
+	    cmsg->cmsg_level != IPPROTO_IPV6 || cmsg->cmsg_type != IPV6_PKTINFO)
+		return false;
+	pi = (const struct in6_pktinfo *)CMSG_DATA(cmsg);
+	if (!IN6_IS_ADDR_UNSPECIFIED(&pi->ipi6_addr) || !pi->ipi6_ifindex)
+		return false;
+	if (!msg->msg_name || msg->msg_namelen < (socklen_t)sizeof(*dst))
+		return false;
+
+	memcpy(dst, msg->msg_name, sizeof(*dst));
+	if (dst->sin6_family != AF_INET6)
+		return false;
+
+	ifindex = pi->ipi6_ifindex;
+	if (IN6_IS_ADDR_MULTICAST(&dst->sin6_addr)) {
+		setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_IF, (char *)&ifindex,
+			   sizeof(ifindex));
+	} else {
+		setsockopt(s, IPPROTO_IPV6, IPV6_UNICAST_IF, (char *)&ifindex,
+			   sizeof(ifindex));
+		if (IN6_IS_ADDR_LINKLOCAL(&dst->sin6_addr) &&
+		    !dst->sin6_scope_id)
+			dst->sin6_scope_id = ifindex;
+	}
+	return true;
+}
+
+static bool sendmsg_hoplimit(SOCKET s, const struct msghdr *msg)
+{
+	const struct cmsghdr *cmsg = msg->msg_control;
+	int hops;
+
+	if (!cmsg || msg->msg_controllen < CMSG_LEN(sizeof(hops)) ||
+	    msg->msg_controllen > CMSG_SPACE(sizeof(hops)) ||
+	    cmsg->cmsg_level != IPPROTO_IPV6 || cmsg->cmsg_type != IPV6_HOPLIMIT)
+		return false;
+	memcpy(&hops, CMSG_DATA(cmsg), sizeof(hops));
+
+	setsockopt(s, IPPROTO_IPV6, IPV6_UNICAST_HOPS, (char *)&hops, sizeof(hops));
+	setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, (char *)&hops, sizeof(hops));
+	return true;
+}
+
+ssize_t frr_win_sendmsg(int fd, const struct msghdr *msg, int flags)
+{
+	SOCK_OR_FAIL(s, fd);
+	WSABUF stack[IOV_STACK], *bufs;
+	struct sockaddr_in6 dst6;
+	DWORD sent = 0;
+	bool r;
+	int rc;
+
+	bufs = iov_to_wsabuf(msg->msg_iov, msg->msg_iovlen, stack);
+	if (!bufs) {
+		errno = ENOMEM;
+		return -1;
+	}
+	r = dontwait_begin(fd, s, &flags);
+
+	if (sock_type(s) == SOCK_STREAM) {
+		rc = WSASend(s, bufs, (DWORD)msg->msg_iovlen, &sent, flags,
+			     NULL, NULL);
+	} else {
+		WSAMSG wm = {
+			.name = msg->msg_name,
+			.namelen = msg->msg_namelen,
+			.lpBuffers = bufs,
+			.dwBufferCount = (ULONG)msg->msg_iovlen,
+			.Control.buf = msg->msg_control,
+			.Control.len = (ULONG)msg->msg_controllen,
+			.dwFlags = 0,
+		};
+
+		if (sendmsg_pktinfo_ifindex(s, msg, &dst6)) {
+			wm.name = (struct sockaddr *)&dst6;
+			wm.namelen = sizeof(dst6);
+			wm.Control.buf = NULL;
+			wm.Control.len = 0;
+		} else if (sendmsg_hoplimit(s, msg)) {
+			wm.Control.buf = NULL;
+			wm.Control.len = 0;
+		}
+		rc = WSASendMsg(s, &wm, flags, &sent, NULL, NULL);
+	}
+	if (rc == SOCKET_ERROR)
+		sock_fail();
+	dontwait_end(fd, s, r);
+	if (bufs != stack)
+		free(bufs);
+	return rc == SOCKET_ERROR ? -1 : (ssize_t)sent;
+}
+
+ssize_t frr_win_recvmsg(int fd, struct msghdr *msg, int flags)
+{
+	SOCK_OR_FAIL(s, fd);
+	WSABUF stack[IOV_STACK], *bufs;
+	DWORD got = 0, wflags = flags & ~MSG_DONTWAIT;
+	bool r;
+	int rc;
+
+	bufs = iov_to_wsabuf(msg->msg_iov, msg->msg_iovlen, stack);
+	if (!bufs) {
+		errno = ENOMEM;
+		return -1;
+	}
+	r = dontwait_begin(fd, s, &flags);
+
+	if (sock_type(s) == SOCK_STREAM || !wsarecvmsg_fn) {
+		rc = WSARecvFrom(s, bufs, (DWORD)msg->msg_iovlen, &got, &wflags,
+				 msg->msg_name, (int *)&msg->msg_namelen, NULL,
+				 NULL);
+		msg->msg_controllen = 0;
+		msg->msg_flags = (int)wflags;
+	} else {
+		WSAMSG wm = {
+			.name = msg->msg_name,
+			.namelen = msg->msg_namelen,
+			.lpBuffers = bufs,
+			.dwBufferCount = (ULONG)msg->msg_iovlen,
+			.Control.buf = msg->msg_control,
+			.Control.len = (ULONG)msg->msg_controllen,
+			.dwFlags = wflags,
+		};
+
+		rc = wsarecvmsg_fn(s, &wm, &got, NULL, NULL);
+		msg->msg_namelen = wm.namelen;
+		msg->msg_controllen = wm.Control.len;
+		msg->msg_flags = (int)wm.dwFlags;
+
+		if (rc != SOCKET_ERROR)
+			for (WSACMSGHDR *cm = WSA_CMSG_FIRSTHDR(&wm); cm;
+			     cm = WSA_CMSG_NXTHDR(&wm, cm))
+				if (cm->cmsg_level == IPPROTO_IP && cm->cmsg_type == IP_TTL)
+					cm->cmsg_type = IP_RECVTTL;
+	}
+	if (rc == SOCKET_ERROR && !sock_read_fail(s)) {
+		/* end of file */
+		rc = 0;
+		got = 0;
+	}
+	dontwait_end(fd, s, r);
+	if (bufs != stack)
+		free(bufs);
+	return rc == SOCKET_ERROR ? -1 : (ssize_t)got;
+}
+
+struct cmsghdr *frr_win_cmsg_nxthdr(struct msghdr *msg, struct cmsghdr *cmsg)
+{
+	unsigned char *next, *end;
+
+	if (!cmsg)
+		return CMSG_FIRSTHDR(msg);
+	next = (unsigned char *)cmsg + WSA_CMSGHDR_ALIGN(cmsg->cmsg_len);
+	end = (unsigned char *)msg->msg_control + msg->msg_controllen;
+	if (next + sizeof(struct cmsghdr) > end)
+		return NULL;
+	return (struct cmsghdr *)next;
+}
+
+/* loopback TCP socket pair (also used to emulate pipe()) */
+static int sockpair(SOCKET sv[2])
+{
+	struct sockaddr_in sin = { .sin_family = AF_INET };
+	struct sockaddr_in local, peer;
+	int len = sizeof(sin), one = 1;
+	SOCKET l, a = INVALID_SOCKET, c = INVALID_SOCKET;
+
+	sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	l = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, 0);
+	if (l == INVALID_SOCKET)
+		return sock_fail();
+	setsockopt(l, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&one,
+		   sizeof(one));
+	if (bind(l, (struct sockaddr *)&sin, sizeof(sin)) ||
+	    getsockname(l, (struct sockaddr *)&sin, &len) || listen(l, 1))
+		goto fail;
+	c = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, 0);
+	if (c == INVALID_SOCKET || connect(c, (struct sockaddr *)&sin, sizeof(sin)))
+		goto fail;
+	a = accept(l, (struct sockaddr *)&peer, &len);
+	if (a == INVALID_SOCKET)
+		goto fail;
+	/* make sure nobody else raced into our listener */
+	len = sizeof(local);
+	if (getsockname(c, (struct sockaddr *)&local, &len) ||
+	    local.sin_port != peer.sin_port) {
+		WSASetLastError(WSAECONNREFUSED);
+		goto fail;
+	}
+	setsockopt(a, IPPROTO_TCP, TCP_NODELAY, (char *)&one, sizeof(one));
+	setsockopt(c, IPPROTO_TCP, TCP_NODELAY, (char *)&one, sizeof(one));
+	closesocket(l);
+	sv[0] = a;
+	sv[1] = c;
+	return 0;
+fail:
+	sock_fail();
+	closesocket(l);
+	if (a != INVALID_SOCKET)
+		closesocket(a);
+	if (c != INVALID_SOCKET)
+		closesocket(c);
+	return -1;
+}
+
+int frr_win_socketpair(int domain, int type, int protocol, int fds[2])
+{
+	SOCKET sv[2];
+	int nb = type & SOCK_NONBLOCK;
+
+	(void)domain;
+	(void)protocol;
+	if (sockpair(sv))
+		return -1;
+	fds[0] = fd_alloc(sv[0]);
+	if (fds[0] < 0) {
+		closesocket(sv[1]);
+		return -1;
+	}
+	fds[1] = fd_alloc(sv[1]);
+	if (fds[1] < 0) {
+		frr_win_close(fds[0]);
+		return -1;
+	}
+	if (nb) {
+		set_nonblock(fds[0], sv[0], true);
+		set_nonblock(fds[1], sv[1], true);
+	}
+	return 0;
+}
+
+int frr_win_pipe(int fds[2])
+{
+	return frr_win_socketpair(AF_INET, SOCK_STREAM, 0, fds);
+}
+
+ssize_t frr_win_read(int fd, void *buf, size_t len)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+
+	if (s != INVALID_SOCKET) {
+		int n = recv(s, buf, clamp_int(len), 0);
+
+		return n == SOCKET_ERROR ? sock_read_fail(s) : n;
+	}
+	return _read(fd, buf, (unsigned int)clamp_int(len));
+}
+
+ssize_t frr_win_write(int fd, const void *buf, size_t len)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+
+	if (s != INVALID_SOCKET) {
+		int n = send(s, buf, clamp_int(len), 0);
+
+		return n == SOCKET_ERROR ? sock_fail() : n;
+	}
+	return _write(fd, buf, (unsigned int)clamp_int(len));
+}
+
+ssize_t frr_win_readv(int fd, const struct iovec *iov, int iovcnt)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+	ssize_t total = 0;
+
+	if (s != INVALID_SOCKET) {
+		WSABUF stack[IOV_STACK], *bufs;
+		DWORD got = 0, flags = 0;
+		int rc;
+
+		bufs = iov_to_wsabuf(iov, iovcnt, stack);
+		if (!bufs) {
+			errno = ENOMEM;
+			return -1;
+		}
+		rc = WSARecv(s, bufs, iovcnt, &got, &flags, NULL, NULL);
+		if (bufs != stack)
+			free(bufs);
+		return rc == SOCKET_ERROR ? sock_read_fail(s) : (ssize_t)got;
+	}
+	for (int i = 0; i < iovcnt; i++) {
+		int n = _read(fd, iov[i].iov_base, (unsigned int)iov[i].iov_len);
+
+		if (n < 0)
+			return total ? total : -1;
+		total += n;
+		if ((size_t)n < iov[i].iov_len)
+			break;
+	}
+	return total;
+}
+
+ssize_t frr_win_writev(int fd, const struct iovec *iov, int iovcnt)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+	ssize_t total = 0;
+
+	if (s != INVALID_SOCKET) {
+		WSABUF stack[IOV_STACK], *bufs;
+		DWORD sent = 0;
+		int rc;
+
+		bufs = iov_to_wsabuf(iov, iovcnt, stack);
+		if (!bufs) {
+			errno = ENOMEM;
+			return -1;
+		}
+		rc = WSASend(s, bufs, iovcnt, &sent, 0, NULL, NULL);
+		if (bufs != stack)
+			free(bufs);
+		return rc == SOCKET_ERROR ? sock_fail() : (ssize_t)sent;
+	}
+	for (int i = 0; i < iovcnt; i++) {
+		int n = _write(fd, iov[i].iov_base,
+			       (unsigned int)iov[i].iov_len);
+
+		if (n < 0)
+			return total ? total : -1;
+		total += n;
+		if ((size_t)n < iov[i].iov_len)
+			break;
+	}
+	return total;
+}
+
+int frr_win_close(int fd)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+
+	if (s != INVALID_SOCKET) {
+		fd_sock[fd] = 0;
+		fd_nonblock[fd] = false;
+		closesocket(s);
+	}
+	return _close(fd);
+}
+
+SOCKET frr_win_fd_detach(int fd)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+
+	if (s != INVALID_SOCKET) {
+		fd_sock[fd] = 0;
+		fd_nonblock[fd] = false;
+		_close(fd);
+	}
+	return s;
+}
+
+#define WHOLE_FILE_LOCK_OFFSET (1ULL << 62)
+
+static int file_lock(int fd, int cmd, struct flock *fl)
+{
+	HANDLE h = fd_handle(fd);
+	OVERLAPPED ov = { 0 };
+	ULARGE_INTEGER off, len;
+	DWORD flags = 0;
+
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = EBADF;
+		return -1;
+	}
+	if (fl->l_len == 0) {
+		off.QuadPart = WHOLE_FILE_LOCK_OFFSET;
+		len.QuadPart = 1;
+	} else {
+		off.QuadPart = (ULONGLONG)fl->l_start;
+		len.QuadPart = (ULONGLONG)fl->l_len;
+	}
+	ov.Offset = off.LowPart;
+	ov.OffsetHigh = off.HighPart;
+
+	if (cmd == F_GETLK) {
+		if (LockFileEx(h, LOCKFILE_EXCLUSIVE_LOCK |
+					  LOCKFILE_FAIL_IMMEDIATELY,
+			       0, len.LowPart, len.HighPart, &ov)) {
+			UnlockFileEx(h, 0, len.LowPart, len.HighPart, &ov);
+			fl->l_type = F_UNLCK;
+		} else
+			fl->l_pid = 0;
+		return 0;
+	}
+	if (fl->l_type == F_UNLCK) {
+		if (UnlockFileEx(h, 0, len.LowPart, len.HighPart, &ov))
+			return 0;
+		errno = EINVAL;
+		return -1;
+	}
+	if (fl->l_type == F_WRLCK)
+		flags |= LOCKFILE_EXCLUSIVE_LOCK;
+	if (cmd == F_SETLK)
+		flags |= LOCKFILE_FAIL_IMMEDIATELY;
+	if (LockFileEx(h, flags, 0, len.LowPart, len.HighPart, &ov))
+		return 0;
+	errno = GetLastError() == ERROR_LOCK_VIOLATION ? EAGAIN : EACCES;
+	return -1;
+}
+
+int frr_win_fcntl(int fd, int cmd, ...)
+{
+	SOCKET s = frr_win_fd2sock(fd);
+	va_list ap;
+	int arg = 0;
+	struct flock *fl = NULL;
+
+	va_start(ap, cmd);
+	if (cmd == F_SETLK || cmd == F_SETLKW || cmd == F_GETLK)
+		fl = va_arg(ap, struct flock *);
+	else if (cmd == F_SETFL || cmd == F_SETFD)
+		arg = va_arg(ap, int);
+	va_end(ap);
+
+	switch (cmd) {
+	case F_GETFD:
+		return FD_CLOEXEC;
+	case F_SETFD:
+		return 0;
+	case F_GETFL:
+		if (s == INVALID_SOCKET)
+			return _O_RDWR;
+		return _O_RDWR | (fd_nonblock[fd] ? O_NONBLOCK : 0);
+	case F_SETFL:
+		if (s == INVALID_SOCKET)
+			return 0;
+		return set_nonblock(fd, s, !!(arg & O_NONBLOCK));
+	case F_SETLK:
+	case F_SETLKW:
+	case F_GETLK:
+		if (s != INVALID_SOCKET) {
+			errno = EINVAL;
+			return -1;
+		}
+		return file_lock(fd, cmd, fl);
+	default:
+		errno = EINVAL;
+		return -1;
+	}
+}
+
+int frr_win_ioctl(int fd, unsigned long req, ...)
+{
+	SOCK_OR_FAIL(s, fd);
+	va_list ap;
+	void *argp;
+	u_long v;
+
+	va_start(ap, req);
+	argp = va_arg(ap, void *);
+	va_end(ap);
+
+	switch (req) {
+	case FIONREAD:
+		if (ioctlsocket(s, FIONREAD, &v))
+			return sock_fail();
+		*(int *)argp = (int)v;
+		return 0;
+	case FIONBIO:
+		return set_nonblock(fd, s, *(int *)argp != 0);
+	default:
+		errno = ENOTTY;
+		return -1;
+	}
+}
+
+int frr_win_dup(int fd)
+{
+	if (frr_win_is_socket(fd)) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return _dup(fd);
+}
+
+int frr_win_dup2(int fd, int fd2)
+{
+	if (frr_win_is_socket(fd) || frr_win_is_socket(fd2)) {
+		errno = ENOTSUP;
+		return -1;
+	}
+	return _dup2(fd, fd2);
+}
+
+static struct sigaction sigtab[FRR_WIN_NSIG];
+static volatile DWORD sig_thread;
+static SOCKET sigwake[2] = { INVALID_SOCKET, INVALID_SOCKET };
+static _Thread_local sigset_t thread_sigmask;
+
+static void sig_default(int sig)
+{
+	switch (sig) {
+	case SIGCHLD:
+	case SIGWINCH:
+	case SIGPIPE:
+	case SIGCONT:
+	case SIGALRM:
+		return;
+	default:
+		_exit(128 + sig);
+	}
+}
+
+static void sig_deliver(int sig)
+{
+	struct sigaction *sa;
+
+	if (sig <= 0 || sig >= FRR_WIN_NSIG)
+		return;
+	sa = &sigtab[sig];
+	if (sa->sa_flags & SA_SIGINFO) {
+		siginfo_t si = { .si_signo = sig };
+
+		if (sa->sa_sigaction)
+			sa->sa_sigaction(sig, &si, NULL);
+		else
+			sig_default(sig);
+	} else if (sa->sa_handler == SIG_IGN) {
+		return;
+	} else if (sa->sa_handler == SIG_DFL || !sa->sa_handler) {
+		sig_default(sig);
+	} else {
+		sa->sa_handler(sig);
+	}
+
+	/* kick the signal-handling thread out of poll() with EINTR */
+	if (sigwake[1] != INVALID_SOCKET)
+		send(sigwake[1], "s", 1, 0);
+}
+
+void frr_win_raise_signal(int sig)
+{
+	sig_deliver(sig);
+}
+
+static HANDLE sigterm_event_open(DWORD pid, bool create)
+{
+	static const char *const spaces[] = { "Global", "Local" };
+	char name[64];
+	HANDLE ev;
+
+	for (size_t i = 0; i < sizeof(spaces) / sizeof(spaces[0]); i++) {
+		snprintf(name, sizeof(name), "%s\\FRR-SIGTERM-%lu", spaces[i], pid);
+		ev = create ? CreateEventA(NULL, FALSE, FALSE, name)
+			    : OpenEventA(EVENT_MODIFY_STATE, FALSE, name);
+		if (ev)
+			return ev;
+	}
+	return NULL;
+}
+
+static void CALLBACK sigterm_event_set(PVOID arg, BOOLEAN timedout)
+{
+	(void)arg;
+	(void)timedout;
+	sig_deliver(SIGTERM);
+}
+
+static void sigterm_event_init(void)
+{
+	static HANDLE ev, wait;
+
+	if (ev)
+		return;
+	ev = sigterm_event_open(GetCurrentProcessId(), true);
+	if (ev)
+		RegisterWaitForSingleObject(&wait, ev, sigterm_event_set, NULL, INFINITE,
+					    WT_EXECUTEDEFAULT);
+}
+
+static BOOL WINAPI console_ctrl(DWORD type)
+{
+	switch (type) {
+	case CTRL_C_EVENT:
+		sig_deliver(SIGINT);
+		return TRUE;
+	case CTRL_BREAK_EVENT:
+		sig_deliver(SIGTERM);
+		return TRUE;
+	case CTRL_CLOSE_EVENT:
+	case CTRL_LOGOFF_EVENT:
+	case CTRL_SHUTDOWN_EVENT:
+		sig_deliver(SIGTERM);
+		/* XXX: give the daemon time to exit */
+		Sleep(5000);
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+static void crt_signal_trampoline(int sig)
+{
+	/* the CRT resets the handler; re-arm then deliver */
+	(signal)(sig, crt_signal_trampoline);
+	sig_deliver(sig);
+}
+
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
+{
+	if (sig <= 0 || sig >= FRR_WIN_NSIG) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (oact)
+		*oact = sigtab[sig];
+	if (!act)
+		return 0;
+	sigtab[sig] = *act;
+
+	switch (sig) {
+	case SIGINT:
+	case SIGTERM:
+	case SIGHUP:
+		if (!sig_thread)
+			sig_thread = GetCurrentThreadId();
+		if (sig == SIGTERM && ((act->sa_flags & SA_SIGINFO) ||
+				       (act->sa_handler != SIG_DFL && act->sa_handler != SIG_IGN)))
+			sigterm_event_init();
+		break;
+	case SIGSEGV:
+	case SIGILL:
+	case SIGFPE:
+	case SIGABRT:
+		if (act->sa_handler == SIG_DFL && !(act->sa_flags & SA_SIGINFO))
+			(signal)(sig, SIG_DFL);
+		else
+			(signal)(sig, crt_signal_trampoline);
+		break;
+	}
+	return 0;
+}
+
+frr_win_sighandler_t frr_win_signal(int sig, frr_win_sighandler_t h)
+{
+	struct sigaction sa = { .sa_handler = h }, osa;
+
+	if (sigaction(sig, &sa, &osa))
+		return SIG_ERR;
+	return (osa.sa_flags & SA_SIGINFO) ? SIG_DFL : osa.sa_handler;
+}
+
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset)
+{
+	if (oset)
+		*oset = thread_sigmask;
+	if (!set)
+		return 0;
+	switch (how) {
+	case SIG_BLOCK:
+		thread_sigmask |= *set;
+		break;
+	case SIG_UNBLOCK:
+		thread_sigmask &= ~*set;
+		break;
+	case SIG_SETMASK:
+		thread_sigmask = *set;
+		break;
+	default:
+		return EINVAL;
+	}
+	return 0;
+}
+
+int sigprocmask(int how, const sigset_t *set, sigset_t *oset)
+{
+	int rv = pthread_sigmask(how, set, oset);
+
+	if (rv) {
+		errno = rv;
+		return -1;
+	}
+	return 0;
+}
+
+int sigpending(sigset_t *set)
+{
+	*set = 0;
+	return 0;
+}
+
+char *strsignal(int sig)
+{
+	static char buf[32];
+
+	switch (sig) {
+	case SIGINT:
+		return "Interrupt";
+	case SIGTERM:
+		return "Terminated";
+	case SIGHUP:
+		return "Hangup";
+	case SIGSEGV:
+		return "Segmentation fault";
+	case SIGABRT:
+		return "Aborted";
+	case SIGILL:
+		return "Illegal instruction";
+	case SIGFPE:
+		return "Floating point exception";
+	case SIGUSR1:
+		return "User defined signal 1";
+	case SIGUSR2:
+		return "User defined signal 2";
+	default:
+		snprintf(buf, sizeof(buf), "Signal %d", sig);
+		return buf;
+	}
+}
+
+unsigned int alarm(unsigned int seconds)
+{
+	(void)seconds;
+	return 0;
+}
+
+/* There is no fork() */
+#define CHILD_MAX 64
+
+static struct child {
+	DWORD pid; /* 0: free */
+	HANDLE process;
+	HANDLE job;
+	HANDLE wait;
+	bool exited;
+	int status; /* what waitpid() gives */
+	int sig;    /* kill() ended it with this signal */
+} children[CHILD_MAX];
+static SRWLOCK children_lock = SRWLOCK_INIT;
+static HANDLE children_event; /* a child exited */
+
+/* on a thread of the system, like console_ctrl() */
+static void CALLBACK child_exited(PVOID arg, BOOLEAN timedout)
+{
+	struct child *c = arg;
+	DWORD code = 0;
+
+	(void)timedout;
+	AcquireSRWLockExclusive(&children_lock);
+	GetExitCodeProcess(c->process, &code);
+	c->status = c->sig ? c->sig : (int)(code & 0xff) << 8;
+	c->exited = true;
+	SetEvent(children_event);
+	ReleaseSRWLockExclusive(&children_lock);
+
+	sig_deliver(SIGCHLD);
+}
+
+pid_t frr_win_spawn_shell(const char *cmd)
+{
+	static const char fmt[] = "\"%s\" /d /s /c \"%s\"";
+	STARTUPINFOA si = { .cb = sizeof(si) };
+	PROCESS_INFORMATION pi;
+	const char *comspec = getenv("COMSPEC");
+	struct child *c = NULL;
+	size_t len;
+	char *line;
+
+	if (!comspec)
+		comspec = "cmd.exe";
+	len = sizeof(fmt) + strlen(comspec) + strlen(cmd);
+	line = malloc(len);
+	if (!line) {
+		errno = ENOMEM;
+		return -1;
+	}
+	snprintf(line, len, fmt, comspec, cmd);
+
+	AcquireSRWLockExclusive(&children_lock);
+	if (!children_event)
+		children_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+	for (int i = 0; i < CHILD_MAX && !c; i++)
+		if (!children[i].pid)
+			c = &children[i];
+	if (!c || !children_event) {
+		ReleaseSRWLockExclusive(&children_lock);
+		free(line);
+		errno = EAGAIN;
+		return -1;
+	}
+	memset(c, 0, sizeof(*c));
+
+	if (!CreateProcessA(NULL, line, NULL, NULL, FALSE,
+			    CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, NULL,
+			    NULL, &si, &pi)) {
+		errno = win_errno(GetLastError());
+		ReleaseSRWLockExclusive(&children_lock);
+		free(line);
+		return -1;
+	}
+	free(line);
+
+	c->job = CreateJobObjectA(NULL, NULL);
+	if (c->job && !AssignProcessToJobObject(c->job, pi.hProcess)) {
+		CloseHandle(c->job);
+		c->job = NULL;
+	}
+	c->process = pi.hProcess;
+	if (!RegisterWaitForSingleObject(&c->wait, pi.hProcess, child_exited, c, INFINITE,
+					 WT_EXECUTEONLYONCE)) {
+		TerminateProcess(pi.hProcess, 1);
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+		if (c->job)
+			CloseHandle(c->job);
+		ReleaseSRWLockExclusive(&children_lock);
+		errno = EAGAIN;
+		return -1;
+	}
+	c->pid = pi.dwProcessId;
+	ResumeThread(pi.hThread);
+	CloseHandle(pi.hThread);
+	ReleaseSRWLockExclusive(&children_lock);
+
+	return (pid_t)pi.dwProcessId;
+}
+
+int kill(pid_t pid, int sig)
+{
+	HANDLE h;
+
+	if (pid == _getpid()) {
+		if (sig)
+			sig_deliver(sig);
+		return 0;
+	}
+	if (pid < -1) {
+		/* a process group: the job of a child */
+		bool found = false;
+
+		AcquireSRWLockExclusive(&children_lock);
+		for (int i = 0; i < CHILD_MAX && !found; i++) {
+			struct child *c = &children[i];
+
+			if (c->pid != (DWORD)-pid)
+				continue;
+			found = true;
+			if (sig && !c->exited) {
+				c->sig = sig;
+				if (c->job)
+					TerminateJobObject(c->job, 128 + sig);
+				else
+					TerminateProcess(c->process, 128 + sig);
+			}
+		}
+		ReleaseSRWLockExclusive(&children_lock);
+		if (!found) {
+			errno = ESRCH;
+			return -1;
+		}
+		return 0;
+	}
+	if (sig == SIGTERM && pid > 0) {
+		HANDLE ev = sigterm_event_open((DWORD)pid, false);
+
+		if (ev) {
+			BOOL set = SetEvent(ev);
+
+			CloseHandle(ev);
+			if (set)
+				return 0;
+		}
+	}
+	h = OpenProcess(sig ? PROCESS_TERMINATE
+			    : PROCESS_QUERY_LIMITED_INFORMATION,
+			FALSE, (DWORD)pid);
+	if (!h) {
+		errno = GetLastError() == ERROR_ACCESS_DENIED ? EPERM : ESRCH;
+		return -1;
+	}
+	if (sig && !TerminateProcess(h, 128 + sig)) {
+		CloseHandle(h);
+		errno = EPERM;
+		return -1;
+	}
+	CloseHandle(h);
+	return 0;
+}
+
+/* the children of frr_win_spawn_shell() */
+pid_t waitpid(pid_t pid, int *status, int options)
+{
+	for (;;) {
+		bool any = false;
+
+		AcquireSRWLockExclusive(&children_lock);
+		for (int i = 0; i < CHILD_MAX; i++) {
+			struct child *c = &children[i];
+			pid_t ret;
+
+			if (!c->pid || (pid > 0 && c->pid != (DWORD)pid))
+				continue;
+			any = true;
+			if (!c->exited)
+				continue;
+
+			ret = (pid_t)c->pid;
+			if (status)
+				*status = c->status;
+			UnregisterWaitEx(c->wait, NULL);
+			CloseHandle(c->process);
+			if (c->job)
+				CloseHandle(c->job);
+			c->pid = 0;
+			ReleaseSRWLockExclusive(&children_lock);
+			return ret;
+		}
+		if (any && !(options & WNOHANG))
+			ResetEvent(children_event);
+		ReleaseSRWLockExclusive(&children_lock);
+
+		if (!any) {
+			errno = ECHILD;
+			return -1;
+		}
+		if (options & WNOHANG)
+			return 0;
+		WaitForSingleObject(children_event, INFINITE);
+	}
+}
+
+pid_t getppid(void)
+{
+	return 0;
+}
+
+int frr_win_select(int nfds, fd_set *rd, fd_set *wr, fd_set *ex, struct timeval *tv)
+{
+	fd_set *fds[3] = { rd, wr, ex };
+	fd_set socks[3];
+	int rc;
+
+	(void)nfds;
+	for (int i = 0; i < 3; i++) {
+		if (!fds[i])
+			continue;
+		socks[i].fd_count = fds[i]->fd_count;
+		for (u_int j = 0; j < fds[i]->fd_count; j++) {
+			SOCKET s = frr_win_fd2sock((int)fds[i]->fd_array[j]);
+
+			if (s == INVALID_SOCKET) {
+				errno = EBADF;
+				return -1;
+			}
+			socks[i].fd_array[j] = s;
+		}
+	}
+
+	rc = select(0, rd ? &socks[0] : NULL, wr ? &socks[1] : NULL, ex ? &socks[2] : NULL, tv);
+	if (rc == SOCKET_ERROR)
+		return sock_fail();
+
+	for (int i = 0; i < 3; i++) {
+		u_int n = 0;
+
+		if (!fds[i])
+			continue;
+		for (u_int j = 0; j < fds[i]->fd_count; j++) {
+			SOCKET s = frr_win_fd2sock((int)fds[i]->fd_array[j]);
+
+			if (FD_ISSET(s, &socks[i]))
+				fds[i]->fd_array[n++] = fds[i]->fd_array[j];
+		}
+		fds[i]->fd_count = n;
+	}
+	return rc;
+}
+
+#define POLL_STACK 64
+
+#define STDIN_POLL_MSEC 10
+
+static bool stdin_readable(void)
+{
+	HANDLE h = fd_handle(STDIN_FILENO);
+	INPUT_RECORD record;
+	DWORD mode, count;
+
+	if (GetConsoleMode(h, &mode)) {
+		/* a key that reading the console returns, behind events that
+		 * it skips: releases, modifiers, focus, mouse, window size
+		 */
+		while (PeekConsoleInputW(h, &record, 1, &count) && count) {
+			const KEY_EVENT_RECORD *key = &record.Event.KeyEvent;
+
+			if (record.EventType == KEY_EVENT && key->bKeyDown &&
+			    (key->uChar.UnicodeChar ||
+			     (key->wVirtualKeyCode >= VK_PRIOR &&
+			      key->wVirtualKeyCode <= VK_DOWN) ||
+			     key->wVirtualKeyCode == VK_INSERT ||
+			     key->wVirtualKeyCode == VK_DELETE ||
+			     (key->wVirtualKeyCode >= VK_F1 &&
+			      key->wVirtualKeyCode <= VK_F12)))
+				return true;
+			ReadConsoleInputW(h, &record, 1, &count);
+		}
+		return false;
+	}
+	if (PeekNamedPipe(h, NULL, 0, NULL, &count, NULL))
+		return count > 0;
+	/* the end of a pipe, or a file: reading won't block */
+	return true;
+}
+
+int frr_win_poll(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+	WSAPOLLFD stack[POLL_STACK], *wfds;
+	int stackidx[POLL_STACK], *idx;
+	nfds_t i, n = 0;
+	int invalid = 0, count = 0, rc;
+	int stdin_idx = -1, stdin_ready = 0;
+	bool want_sig = GetCurrentThreadId() == sig_thread &&
+			sigwake[0] != INVALID_SOCKET;
+	bool got_sig = false;
+
+	if (nfds + 1 <= POLL_STACK) {
+		wfds = stack;
+		idx = stackidx;
+	} else {
+		wfds = malloc((nfds + 1) * sizeof(*wfds));
+		idx = malloc((nfds + 1) * sizeof(*idx));
+		if (!wfds || !idx) {
+			free(wfds);
+			free(idx);
+			errno = ENOMEM;
+			return -1;
+		}
+	}
+
+	for (i = 0; i < nfds; i++) {
+		SOCKET s;
+
+		fds[i].revents = 0;
+		if (fds[i].fd < 0)
+			continue;
+		s = frr_win_fd2sock(fds[i].fd);
+		if (s == INVALID_SOCKET && fds[i].fd == STDIN_FILENO &&
+		    (fds[i].events & POLLRDNORM)) {
+			stdin_idx = (int)i;
+			continue;
+		}
+		if (s == INVALID_SOCKET) {
+			fds[i].revents = POLLNVAL;
+			invalid++;
+			continue;
+		}
+		wfds[n].fd = s;
+		wfds[n].events = fds[i].events &
+				 (POLLRDNORM | POLLRDBAND | POLLWRNORM);
+		wfds[n].revents = 0;
+		idx[n++] = (int)i;
+	}
+	if (want_sig) {
+		wfds[n].fd = sigwake[0];
+		wfds[n].events = POLLRDNORM;
+		wfds[n].revents = 0;
+		idx[n++] = -1;
+	}
+	if (invalid)
+		timeout = 0;
+
+	if (stdin_idx >= 0) {
+		ULONGLONG end = GetTickCount64() + (timeout > 0 ? timeout : 0);
+
+		for (;;) {
+			int slice = STDIN_POLL_MSEC;
+
+			if (stdin_readable()) {
+				fds[stdin_idx].revents = POLLRDNORM;
+				stdin_ready = 1;
+				slice = 0;
+			} else if (timeout >= 0) {
+				ULONGLONG now = GetTickCount64();
+
+				slice = STDIN_POLL_MSEC;
+				if (now >= end)
+					slice = 0;
+				else if (end - now < STDIN_POLL_MSEC)
+					slice = (int)(end - now);
+			}
+			rc = 0;
+			if (n)
+				rc = WSAPoll(wfds, (ULONG)n, slice);
+			else if (slice)
+				Sleep(slice);
+			if (rc || !slice)
+				break;
+		}
+	} else if (n == 0) {
+		if (timeout > 0)
+			Sleep(timeout);
+		rc = invalid;
+		goto out;
+	} else {
+		rc = WSAPoll(wfds, (ULONG)n, timeout);
+	}
+	if (rc == SOCKET_ERROR) {
+		sock_fail();
+		rc = -1;
+		goto out;
+	}
+
+	count = invalid + stdin_ready;
+	for (i = 0; i < n; i++) {
+		if (!wfds[i].revents)
+			continue;
+		if (idx[i] < 0) {
+			char buf[64];
+
+			while (recv(sigwake[0], buf, sizeof(buf), 0) > 0)
+				;
+			got_sig = true;
+			continue;
+		}
+		fds[idx[i]].revents = wfds[i].revents;
+		count++;
+	}
+	if (got_sig) {
+		errno = EINTR;
+		rc = -1;
+	} else
+		rc = count;
+out:
+	if (wfds != stack) {
+		free(wfds);
+		free(idx);
+	}
+	return rc;
+}
+
+int frr_win_open(const char *path, int flags, ...)
+{
+	int mode = 0;
+
+	if (flags & _O_CREAT) {
+		va_list ap;
+
+		va_start(ap, flags);
+		mode = va_arg(ap, int);
+		va_end(ap);
+	}
+	if (!strcmp(path, "/dev/null"))
+		path = "NUL";
+	if (!strcmp(path, "/dev/urandom") || !strcmp(path, "/dev/random")) {
+		unsigned int bytes[64];
+		int fds[2];
+
+		for (size_t i = 0; i < sizeof(bytes) / sizeof(bytes[0]); i++)
+			rand_s(&bytes[i]);
+		if (_pipe(fds, sizeof(bytes), _O_BINARY | _O_NOINHERIT))
+			return -1;
+		_write(fds[1], bytes, sizeof(bytes));
+		_close(fds[1]);
+		return fds[0];
+	}
+	if (flags & O_DIRECTORY) {
+		DWORD attr = GetFileAttributesA(path);
+
+		if (attr == INVALID_FILE_ATTRIBUTES) {
+			errno = win_errno(GetLastError());
+			return -1;
+		}
+		if (!(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+			errno = ENOTDIR;
+			return -1;
+		}
+		/* a directory fd, good for openat() & co. and for close() */
+		return _open(path, _O_RDONLY | _O_BINARY | _O_OBTAIN_DIR);
+	}
+	flags &= ~O_NONBLOCK;
+	if (!(flags & _O_TEXT))
+		flags |= _O_BINARY;
+	return _open(path, flags, mode ? (mode & (_S_IREAD | _S_IWRITE))
+				       : (_S_IREAD | _S_IWRITE));
+}
+
+int frr_win_mkdir(const char *path, mode_t mode)
+{
+	char parents[MAX_PATH];
+	char *p;
+
+	(void)mode;
+
+	if (strlen(path) < sizeof(parents)) {
+		strcpy(parents, path);
+		for (p = strpbrk(parents, "/\\"); p; p = strpbrk(p + 1, "/\\")) {
+			if (p == parents || p[-1] == ':')
+				continue;
+			*p = '\0';
+			_mkdir(parents);
+			*p = '/';
+		}
+	}
+	return _mkdir(path);
+}
+
+int frr_win_rename(const char *from, const char *to)
+{
+	if (MoveFileExA(from, to,
+			MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+		return 0;
+	errno = win_errno(GetLastError());
+	return -1;
+}
+
+int frr_win_unlink(const char *path)
+{
+	if (!_unlink(path))
+		return 0;
+	/* AF_UNIX socket files are reparse points; DeleteFile copes */
+	if (DeleteFileA(path))
+		return 0;
+	errno = win_errno(GetLastError());
+	return -1;
+}
+
+static int at_path(int dirfd, const char *path, char *out, size_t outsz)
+{
+	HANDLE h;
+	DWORD len;
+
+	if (dirfd == AT_FDCWD || path[0] == '/' || path[0] == '\\' ||
+	    (path[0] && path[1] == ':')) {
+		if (strlen(path) >= outsz) {
+			errno = ENAMETOOLONG;
+			return -1;
+		}
+		strcpy(out, path);
+		return 0;
+	}
+	if (dirfd < 0 || frr_win_is_socket(dirfd)) {
+		errno = EBADF;
+		return -1;
+	}
+	h = fd_handle(dirfd);
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = EBADF;
+		return -1;
+	}
+	len = GetFinalPathNameByHandleA(h, out, (DWORD)outsz,
+					FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+	if (!len) {
+		errno = win_errno(GetLastError());
+		return -1;
+	}
+	if (len + 1 + strlen(path) >= outsz) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	out[len] = '\\';
+	strcpy(out + len + 1, path);
+	return 0;
+}
+
+int openat(int dirfd, const char *path, int flags, ...)
+{
+	char full[MAX_PATH + 8];
+	int mode = 0;
+
+	if (flags & _O_CREAT) {
+		va_list ap;
+
+		va_start(ap, flags);
+		mode = va_arg(ap, int);
+		va_end(ap);
+	}
+	if (at_path(dirfd, path, full, sizeof(full)) < 0)
+		return -1;
+	return frr_win_open(full, flags, mode);
+}
+
+int renameat(int olddirfd, const char *oldpath, int newdirfd,
+	     const char *newpath)
+{
+	char from[MAX_PATH + 8], to[MAX_PATH + 8];
+
+	if (at_path(olddirfd, oldpath, from, sizeof(from)) < 0 ||
+	    at_path(newdirfd, newpath, to, sizeof(to)) < 0)
+		return -1;
+	return frr_win_rename(from, to);
+}
+
+int unlinkat(int dirfd, const char *path, int flags)
+{
+	char full[MAX_PATH + 8];
+
+	if (at_path(dirfd, path, full, sizeof(full)) < 0)
+		return -1;
+	if (flags & AT_REMOVEDIR)
+		return _rmdir(full);
+	return frr_win_unlink(full);
+}
+
+int fsync(int fd)
+{
+	BY_HANDLE_FILE_INFORMATION info;
+	HANDLE h = fd_handle(fd);
+
+	/* a directory fd is open for reading only and cannot be flushed;
+	 * NTFS logs directory updates
+	 */
+	if (h != INVALID_HANDLE_VALUE && GetFileInformationByHandle(h, &info) &&
+	    (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		return 0;
+	return _commit(fd);
+}
+
+int ftruncate(int fd, long long len)
+{
+	errno_t e = _chsize_s(fd, len);
+
+	if (e) {
+		errno = e;
+		return -1;
+	}
+	return 0;
+}
+
+int frr_win_isatty(int fd)
+{
+	if (frr_win_is_socket(fd))
+		return 0;
+	return _isatty(fd);
+}
+
+#ifndef IO_REPARSE_TAG_AF_UNIX
+#define IO_REPARSE_TAG_AF_UNIX 0x80000023L
+#endif
+
+int frr_win_stat(const char *path, struct stat *st)
+{
+	WIN32_FIND_DATAA found;
+	HANDLE find;
+	int ret = stat(path, st);
+
+	find = FindFirstFileA(path, &found);
+	if (find == INVALID_HANDLE_VALUE)
+		return ret;
+	FindClose(find);
+
+	if ((found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+	    found.dwReserved0 == IO_REPARSE_TAG_AF_UNIX) {
+		if (ret)
+			memset(st, 0, sizeof(*st));
+		st->st_mode = S_IFSOCK | _S_IREAD | _S_IWRITE;
+		return 0;
+	}
+	return ret;
+}
+
+int flock(int fd, int operation)
+{
+	HANDLE h = fd_handle(fd);
+	ULARGE_INTEGER off = { .QuadPart = WHOLE_FILE_LOCK_OFFSET + 1 };
+	OVERLAPPED ov = { .Offset = off.LowPart, .OffsetHigh = off.HighPart };
+	DWORD flags = 0;
+
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = EBADF;
+		return -1;
+	}
+	if (operation & LOCK_UN)
+		return UnlockFileEx(h, 0, 1, 0, &ov) ? 0 : -1;
+
+	if (operation & LOCK_EX)
+		flags |= LOCKFILE_EXCLUSIVE_LOCK;
+	if (operation & LOCK_NB)
+		flags |= LOCKFILE_FAIL_IMMEDIATELY;
+	if (LockFileEx(h, flags, 0, 1, 0, &ov))
+		return 0;
+	errno = GetLastError() == ERROR_LOCK_VIOLATION ? EWOULDBLOCK : EINVAL;
+	return -1;
+}
+
+struct passwd *getpwuid(uid_t uid)
+{
+	static struct passwd pw;
+	static char name[257], home[MAX_PATH];
+	DWORD len = sizeof(name);
+	const char *profile = getenv("USERPROFILE");
+
+	(void)uid;
+	if (!GetUserNameA(name, &len))
+		return NULL;
+	snprintf(home, sizeof(home), "%s", profile ? profile : "");
+	pw.pw_name = name;
+	pw.pw_passwd = (char *)"";
+	pw.pw_gecos = name;
+	pw.pw_dir = home;
+	pw.pw_shell = (char *)"cmd.exe";
+	return &pw;
+}
+
+char *realpath(const char *path, char *resolved)
+{
+	char *r = _fullpath(resolved, path, MAX_PATH);
+
+	if (!r)
+		return NULL;
+	if (GetFileAttributesA(r) == INVALID_FILE_ATTRIBUTES) {
+		errno = ENOENT;
+		if (!resolved)
+			free(r);
+		return NULL;
+	}
+	return r;
+}
+
+int chown(const char *path, uid_t u, gid_t g)
+{
+	(void)path;
+	(void)u;
+	(void)g;
+	return 0;
+}
+
+int fchown(int fd, uid_t u, gid_t g)
+{
+	(void)fd;
+	(void)u;
+	(void)g;
+	return 0;
+}
+
+int fchmod(int fd, mode_t mode)
+{
+	(void)fd;
+	(void)mode;
+	return 0;
+}
+
+ssize_t readlink(const char *path, char *buf, size_t len)
+{
+	(void)path;
+	(void)buf;
+	(void)len;
+	errno = EINVAL;
+	return -1;
+}
+
+int symlink(const char *target, const char *path)
+{
+	(void)target;
+	(void)path;
+	errno = ENOSYS;
+	return -1;
+}
+
+int link(const char *target, const char *path)
+{
+	if (CreateHardLinkA(path, target, NULL))
+		return 0;
+	errno = win_errno(GetLastError());
+	return -1;
+}
+
+int frr_win_mkstemp(char *tmpl)
+{
+	if (_mktemp_s(tmpl, strlen(tmpl) + 1)) {
+		errno = EINVAL;
+		return -1;
+	}
+	return _open(tmpl, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY,
+		     _S_IREAD | _S_IWRITE);
+}
+
+char *basename(char *path)
+{
+	static char dot[] = ".";
+	char *p, *end;
+
+	if (!path || !*path)
+		return dot;
+	end = path + strlen(path) - 1;
+	while (end > path && (*end == '/' || *end == '\\'))
+		*end-- = '\0';
+	for (p = end; p > path; p--)
+		if (p[-1] == '/' || p[-1] == '\\')
+			return p;
+	return path;
+}
+
+char *dirname(char *path)
+{
+	static char dot[] = ".";
+	char *end;
+
+	if (!path || !*path)
+		return dot;
+	end = path + strlen(path) - 1;
+	while (end > path && (*end == '/' || *end == '\\'))
+		end--;
+	while (end > path && *end != '/' && *end != '\\')
+		end--;
+	if (end == path)
+		return (*end == '/' || *end == '\\') ? (end[1] = '\0', path)
+						     : dot;
+	while (end > path && (end[-1] == '/' || end[-1] == '\\'))
+		end--;
+	*end = '\0';
+	return path;
+}
+
+void *mmap(void *addr, size_t len, int prot, int flags, int fd, long long off)
+{
+	HANDLE fh, map;
+	DWORD protect, access;
+	void *p;
+
+	(void)addr;
+	if (flags & MAP_ANONYMOUS) {
+		p = VirtualAlloc(NULL, len, MEM_RESERVE | MEM_COMMIT,
+				 PAGE_READWRITE);
+		if (!p) {
+			errno = ENOMEM;
+			return MAP_FAILED;
+		}
+		return p;
+	}
+
+	fh = fd_handle(fd);
+	if (fh == INVALID_HANDLE_VALUE) {
+		errno = EBADF;
+		return MAP_FAILED;
+	}
+	protect = (prot & PROT_WRITE) ? PAGE_READWRITE : PAGE_READONLY;
+	access = (prot & PROT_WRITE) ? FILE_MAP_WRITE : FILE_MAP_READ;
+	map = CreateFileMappingA(fh, NULL, protect, 0, 0, NULL);
+	if (!map) {
+		errno = win_errno(GetLastError());
+		return MAP_FAILED;
+	}
+	p = MapViewOfFile(map, access, (DWORD)(off >> 32), (DWORD)off, len);
+	CloseHandle(map);
+	if (!p) {
+		errno = win_errno(GetLastError());
+		return MAP_FAILED;
+	}
+	return p;
+}
+
+int munmap(void *addr, size_t len)
+{
+	(void)len;
+	if (UnmapViewOfFile(addr) || VirtualFree(addr, 0, MEM_RELEASE))
+		return 0;
+	errno = EINVAL;
+	return -1;
+}
+
+int msync(void *addr, size_t len, int flags)
+{
+	(void)flags;
+	return FlushViewOfFile(addr, len) ? 0 : -1;
+}
+
+#define EPOCH_DIFF_100NS 116444736000000000ULL
+
+static void filetime_to_ts(ULONGLONG t100ns, struct timespec *ts)
+{
+	ts->tv_sec = (time_t)(t100ns / 10000000ULL);
+	ts->tv_nsec = (long)((t100ns % 10000000ULL) * 100);
+}
+
+int clock_gettime(clockid_t clk, struct timespec *ts)
+{
+	FILETIME ct, et, kt, ut;
+	ULARGE_INTEGER k, u;
+
+	switch (clk) {
+	case CLOCK_REALTIME:
+	case CLOCK_REALTIME_COARSE: {
+		FILETIME ft;
+		ULARGE_INTEGER t;
+
+		GetSystemTimePreciseAsFileTime(&ft);
+		t.LowPart = ft.dwLowDateTime;
+		t.HighPart = ft.dwHighDateTime;
+		filetime_to_ts(t.QuadPart - EPOCH_DIFF_100NS, ts);
+		return 0;
+	}
+	case CLOCK_MONOTONIC:
+	case CLOCK_MONOTONIC_RAW:
+	case CLOCK_MONOTONIC_COARSE:
+	case CLOCK_BOOTTIME: {
+		static LARGE_INTEGER freq;
+		LARGE_INTEGER c;
+
+		if (!freq.QuadPart)
+			QueryPerformanceFrequency(&freq);
+		QueryPerformanceCounter(&c);
+		ts->tv_sec = (time_t)(c.QuadPart / freq.QuadPart);
+		ts->tv_nsec = (long)((c.QuadPart % freq.QuadPart) *
+				     1000000000LL / freq.QuadPart);
+		return 0;
+	}
+	case CLOCK_PROCESS_CPUTIME_ID:
+		if (!GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut))
+			break;
+		goto cpu;
+	case CLOCK_THREAD_CPUTIME_ID:
+		if (!GetThreadTimes(GetCurrentThread(), &ct, &et, &kt, &ut))
+			break;
+	cpu:
+		k.LowPart = kt.dwLowDateTime;
+		k.HighPart = kt.dwHighDateTime;
+		u.LowPart = ut.dwLowDateTime;
+		u.HighPart = ut.dwHighDateTime;
+		filetime_to_ts(k.QuadPart + u.QuadPart, ts);
+		return 0;
+	}
+	errno = EINVAL;
+	return -1;
+}
+
+long frr_win_gmtoff(const struct tm *tm)
+{
+	struct tm t = *tm;
+	time_t as_utc, as_local;
+
+	/* same broken-down time read as UTC and as local time */
+	as_utc = _mkgmtime(&t);
+	t = *tm;
+	as_local = mktime(&t);
+	if (as_utc == (time_t)-1 || as_local == (time_t)-1)
+		return 0;
+	return (long)(as_utc - as_local);
+}
+
+int clock_getres(clockid_t clk, struct timespec *ts)
+{
+	(void)clk;
+	ts->tv_sec = 0;
+	ts->tv_nsec = 100;
+	return 0;
+}
+
+int gettimeofday(struct timeval *tv, void *tz)
+{
+	struct timespec ts;
+
+	(void)tz;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	tv->tv_sec = (long)ts.tv_sec;
+	tv->tv_usec = ts.tv_nsec / 1000;
+	return 0;
+}
+
+int nanosleep(const struct timespec *req, struct timespec *rem)
+{
+	long long ms = req->tv_sec * 1000LL + (req->tv_nsec + 999999) / 1000000;
+
+	Sleep((DWORD)ms);
+	if (rem)
+		rem->tv_sec = rem->tv_nsec = 0;
+	return 0;
+}
+
+int usleep(useconds_t usec)
+{
+	Sleep((usec + 999) / 1000);
+	return 0;
+}
+
+unsigned int sleep(unsigned int seconds)
+{
+	Sleep(seconds * 1000);
+	return 0;
+}
+
+int getrusage(int who, struct rusage *ru)
+{
+	FILETIME ct, et, kt, ut;
+	ULARGE_INTEGER k, u;
+	BOOL ok;
+
+	memset(ru, 0, sizeof(*ru));
+	if (who == RUSAGE_THREAD)
+		ok = GetThreadTimes(GetCurrentThread(), &ct, &et, &kt, &ut);
+	else
+		ok = GetProcessTimes(GetCurrentProcess(), &ct, &et, &kt, &ut);
+	if (!ok) {
+		errno = EINVAL;
+		return -1;
+	}
+	k.LowPart = kt.dwLowDateTime;
+	k.HighPart = kt.dwHighDateTime;
+	u.LowPart = ut.dwLowDateTime;
+	u.HighPart = ut.dwHighDateTime;
+	ru->ru_utime.tv_sec = (long)(u.QuadPart / 10000000ULL);
+	ru->ru_utime.tv_usec = (long)((u.QuadPart % 10000000ULL) / 10);
+	ru->ru_stime.tv_sec = (long)(k.QuadPart / 10000000ULL);
+	ru->ru_stime.tv_usec = (long)((k.QuadPart % 10000000ULL) / 10);
+	return 0;
+}
+
+int getrlimit(int resource, struct rlimit *rlim)
+{
+	switch (resource) {
+	case RLIMIT_NOFILE:
+		rlim->rlim_cur = rlim->rlim_max = FD_TABLE_SIZE;
+		return 0;
+	case RLIMIT_CORE:
+		rlim->rlim_cur = rlim->rlim_max = 0;
+		return 0;
+	default:
+		rlim->rlim_cur = rlim->rlim_max = RLIM_INFINITY;
+		return 0;
+	}
+}
+
+int setrlimit(int resource, const struct rlimit *rlim)
+{
+	(void)resource;
+	(void)rlim;
+	return 0;
+}
+
+long sysconf(int name)
+{
+	SYSTEM_INFO si;
+
+	GetNativeSystemInfo(&si);
+	switch (name) {
+	case _SC_OPEN_MAX:
+		return FD_TABLE_SIZE;
+	case _SC_PAGESIZE:
+		return si.dwPageSize;
+	case _SC_NPROCESSORS_ONLN:
+		return si.dwNumberOfProcessors;
+	case _SC_CLK_TCK:
+		return 100;
+	default:
+		errno = EINVAL;
+		return -1;
+	}
+}
+
+int getloadavg(double loadavg[], int nelem)
+{
+	(void)loadavg;
+	(void)nelem;
+	return -1;
+}
+
+int uname(struct utsname *name)
+{
+	typedef LONG(WINAPI * rtlgetversion_t)(PRTL_OSVERSIONINFOW);
+	RTL_OSVERSIONINFOW vi = { .dwOSVersionInfoSize = sizeof(vi) };
+	rtlgetversion_t rgv;
+	SYSTEM_INFO si;
+	DWORD len = sizeof(name->nodename);
+
+	memset(name, 0, sizeof(*name));
+	strcpy_s(name->sysname, sizeof(name->sysname), "Windows");
+	if (!GetComputerNameExA(ComputerNameDnsHostname, name->nodename, &len))
+		strcpy_s(name->nodename, sizeof(name->nodename), "localhost");
+
+	rgv = (rtlgetversion_t)(void *)GetProcAddress(
+		GetModuleHandleA("ntdll.dll"), "RtlGetVersion");
+	if (rgv && rgv(&vi) == 0) {
+		snprintf(name->release, sizeof(name->release), "%lu.%lu",
+			 vi.dwMajorVersion, vi.dwMinorVersion);
+		snprintf(name->version, sizeof(name->version), "build %lu",
+			 vi.dwBuildNumber);
+	}
+
+	GetNativeSystemInfo(&si);
+	switch (si.wProcessorArchitecture) {
+	case PROCESSOR_ARCHITECTURE_ARM64:
+		strcpy_s(name->machine, sizeof(name->machine), "aarch64");
+		break;
+	case PROCESSOR_ARCHITECTURE_AMD64:
+		strcpy_s(name->machine, sizeof(name->machine), "x86_64");
+		break;
+	case PROCESSOR_ARCHITECTURE_INTEL:
+		strcpy_s(name->machine, sizeof(name->machine), "i686");
+		break;
+	default:
+		strcpy_s(name->machine, sizeof(name->machine), "unknown");
+	}
+	return 0;
+}
+
+int frr_win_gethostname(char *name, size_t len)
+{
+	return gethostname(name, (int)len) ? sock_fail() : 0;
+}
+
+int frr_win_inet_aton(const char *cp, struct in_addr *inp)
+{
+	unsigned long a;
+
+	if (inet_pton(AF_INET, cp, inp) == 1)
+		return 1;
+	/* inet_aton also accepts the short forms "10.1", "0x0a000001", ... */
+	a = inet_addr(cp);
+	if (a == INADDR_NONE && strcmp(cp, "255.255.255.255"))
+		return 0;
+	inp->s_addr = a;
+	return 1;
+}
+
+char *strndup(const char *s, size_t n)
+{
+	size_t len = strnlen(s, n);
+	char *r = malloc(len + 1);
+
+	if (!r)
+		return NULL;
+	memcpy(r, s, len);
+	r[len] = '\0';
+	return r;
+}
+
+char *strsep(char **stringp, const char *delim)
+{
+	char *s = *stringp, *e;
+
+	if (!s)
+		return NULL;
+	e = s + strcspn(s, delim);
+	if (*e)
+		*e++ = '\0';
+	else
+		e = NULL;
+	*stringp = e;
+	return s;
+}
+
+char *strcasestr(const char *haystack, const char *needle)
+{
+	size_t nl = strlen(needle);
+
+	for (; *haystack; haystack++)
+		if (!_strnicmp(haystack, needle, nl))
+			return (char *)haystack;
+	return nl ? NULL : (char *)haystack;
+}
+
+void *memmem(const void *h, size_t hl, const void *n, size_t nl)
+{
+	const unsigned char *p = h;
+
+	if (!nl)
+		return (void *)h;
+	for (; hl >= nl; p++, hl--)
+		if (*p == *(const unsigned char *)n && !memcmp(p, n, nl))
+			return (void *)p;
+	return NULL;
+}
+
+void *memrchr(const void *s, int c, size_t n)
+{
+	const unsigned char *p = (const unsigned char *)s + n;
+
+	while (n--)
+		if (*--p == (unsigned char)c)
+			return (void *)p;
+	return NULL;
+}
+
+char *stpcpy(char *dst, const char *src)
+{
+	size_t len = strlen(src);
+
+	memcpy(dst, src, len + 1);
+	return dst + len;
+}
+
+int vasprintf(char **strp, const char *fmt, va_list ap)
+{
+	va_list ap2;
+	int len;
+
+	va_copy(ap2, ap);
+	len = _vscprintf(fmt, ap2);
+	va_end(ap2);
+	if (len < 0 || !(*strp = malloc((size_t)len + 1)))
+		return -1;
+	return vsnprintf(*strp, (size_t)len + 1, fmt, ap);
+}
+
+int asprintf(char **strp, const char *fmt, ...)
+{
+	va_list ap;
+	int rv;
+
+	va_start(ap, fmt);
+	rv = vasprintf(strp, fmt, ap);
+	va_end(ap);
+	return rv;
+}
+
+/* syslog: XXX todo use Windows' log services */
+
+static char syslog_ident[64] = "frr";
+
+void openlog(const char *ident, int option, int facility)
+{
+	(void)option;
+	(void)facility;
+	if (ident)
+		strncpy_s(syslog_ident, sizeof(syslog_ident), ident, _TRUNCATE);
+}
+
+void vsyslog(int priority, const char *fmt, va_list ap)
+{
+	char buf[1024];
+	int n;
+
+	(void)priority;
+	n = snprintf(buf, sizeof(buf), "%s: ", syslog_ident);
+	vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
+	OutputDebugStringA(buf);
+}
+
+void syslog(int priority, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsyslog(priority, fmt, ap);
+	va_end(ap);
+}
+
+void closelog(void)
+{
+}
+
+int setlogmask(int mask)
+{
+	return mask;
+}
+
+static char dl_err[256];
+
+static void dl_seterr(const char *what)
+{
+	DWORD e = GetLastError();
+	int n = snprintf(dl_err, sizeof(dl_err), "%s: ", what);
+
+	FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
+			       FORMAT_MESSAGE_IGNORE_INSERTS,
+		       NULL, e, 0, dl_err + n, (DWORD)(sizeof(dl_err) - n),
+		       NULL);
+}
+
+void *dlopen(const char *file, int mode)
+{
+	HMODULE h;
+
+	(void)mode;
+	h = file ? LoadLibraryA(file) : GetModuleHandleA(NULL);
+	if (!h)
+		dl_seterr(file ? file : "(self)");
+	return h;
+}
+
+void *dlsym(void *handle, const char *name)
+{
+	FARPROC p = GetProcAddress(handle ? handle : GetModuleHandleA(NULL),
+				   name);
+
+	if (!p)
+		dl_seterr(name);
+	return (void *)p;
+}
+
+int dlclose(void *handle)
+{
+	return FreeLibrary(handle) ? 0 : -1;
+}
+
+char *dlerror(void)
+{
+	static char ret[256];
+
+	if (!dl_err[0])
+		return NULL;
+	memcpy(ret, dl_err, sizeof(ret));
+	dl_err[0] = '\0';
+	return ret;
+}
+
+int dladdr(const void *addr, Dl_info *info)
+{
+	static char path[MAX_PATH];
+	HMODULE h;
+
+	memset(info, 0, sizeof(*info));
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+				       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			       addr, &h))
+		return 0;
+	GetModuleFileNameA(h, path, sizeof(path));
+	info->dli_fname = path;
+	info->dli_fbase = h;
+	return 1;
+}
+
+char *optarg;
+int optind = 1, opterr = 1, optopt = '?';
+static int optpos;
+
+static int getopt_internal(int argc, char *const argv[], const char *optstring,
+			   const struct option *longopts, int *longindex)
+{
+	bool colon;
+	const char *arg, *spec;
+	int c;
+
+	if (*optstring == '+' || *optstring == '-')
+		optstring++;
+	colon = *optstring == ':';
+
+	optarg = NULL;
+	if (optind == 0) {
+		optind = 1;
+		optpos = 0;
+	}
+	if (optind >= argc || !argv[optind])
+		return -1;
+	arg = argv[optind];
+
+	if (!optpos) {
+		if (arg[0] != '-' || !arg[1])
+			return -1;
+		if (!strcmp(arg, "--")) {
+			optind++;
+			return -1;
+		}
+		if (arg[1] == '-' && longopts) {
+			const char *name = arg + 2, *eq = strchr(name, '=');
+			size_t nlen = eq ? (size_t)(eq - name) : strlen(name);
+			int match = -1, nmatch = 0;
+
+			for (int i = 0; longopts[i].name; i++) {
+				if (strncmp(longopts[i].name, name, nlen))
+					continue;
+				if (strlen(longopts[i].name) == nlen) {
+					match = i;
+					nmatch = 1;
+					break;
+				}
+				match = i;
+				nmatch++;
+			}
+			optind++;
+			if (nmatch != 1) {
+				if (opterr && !colon)
+					fprintf(stderr, "%s: %s option '%s'\n",
+						argv[0],
+						nmatch ? "ambiguous"
+						       : "unrecognized",
+						arg);
+				optopt = 0;
+				return '?';
+			}
+			if (longindex)
+				*longindex = match;
+			if (longopts[match].has_arg == no_argument && eq) {
+				if (opterr && !colon)
+					fprintf(stderr,
+						"%s: option '--%s' doesn't allow an argument\n",
+						argv[0], longopts[match].name);
+				optopt = longopts[match].val;
+				return '?';
+			}
+			if (eq)
+				optarg = (char *)eq + 1;
+			else if (longopts[match].has_arg == required_argument) {
+				if (optind >= argc) {
+					if (opterr && !colon)
+						fprintf(stderr,
+							"%s: option '--%s' requires an argument\n",
+							argv[0],
+							longopts[match].name);
+					optopt = longopts[match].val;
+					return colon ? ':' : '?';
+				}
+				optarg = argv[optind++];
+			}
+			if (longopts[match].flag) {
+				*longopts[match].flag = longopts[match].val;
+				return 0;
+			}
+			return longopts[match].val;
+		}
+		optpos = 1;
+	}
+
+	c = (unsigned char)arg[optpos++];
+	spec = c != ':' ? strchr(optstring, c) : NULL;
+	if (!spec) {
+		if (opterr && !colon)
+			fprintf(stderr, "%s: invalid option -- '%c'\n", argv[0],
+				c);
+		optopt = c;
+		if (!arg[optpos]) {
+			optind++;
+			optpos = 0;
+		}
+		return '?';
+	}
+	if (spec[1] == ':') {
+		if (arg[optpos]) {
+			optarg = (char *)arg + optpos;
+		} else if (spec[2] != ':') {
+			if (optind + 1 >= argc) {
+				if (opterr && !colon)
+					fprintf(stderr,
+						"%s: option requires an argument -- '%c'\n",
+						argv[0], c);
+				optopt = c;
+				optind++;
+				optpos = 0;
+				return colon ? ':' : '?';
+			}
+			optarg = argv[++optind];
+		}
+		optind++;
+		optpos = 0;
+	} else if (!arg[optpos]) {
+		optind++;
+		optpos = 0;
+	}
+	return c;
+}
+
+int getopt(int argc, char *const argv[], const char *optstring)
+{
+	return getopt_internal(argc, argv, optstring, NULL, NULL);
+}
+
+int getopt_long(int argc, char *const argv[], const char *optstring,
+		const struct option *longopts, int *longindex)
+{
+	return getopt_internal(argc, argv, optstring, longopts, longindex);
+}
+
+int getopt_long_only(int argc, char *const argv[], const char *optstring,
+		     const struct option *longopts, int *longindex)
+{
+	return getopt_internal(argc, argv, optstring, longopts, longindex);
+}
+
+/* process start-up, runs before any FRR constructor */
+
+static void invalid_param(const wchar_t *expr, const wchar_t *func,
+			  const wchar_t *file, unsigned int line,
+			  uintptr_t reserved)
+{
+	/* make the CRT return EBADF/EINVAL like POSIX instead of aborting */
+	(void)expr;
+	(void)func;
+	(void)file;
+	(void)line;
+	(void)reserved;
+}
+
+/* before the constructors of FRR */
+static void __attribute__((constructor(101))) frr_win_startup(void)
+{
+	WSADATA wsa;
+	GUID g = WSAID_WSARECVMSG;
+	DWORD n;
+	SOCKET s;
+
+	_set_invalid_parameter_handler(invalid_param);
+	_CrtSetReportMode(_CRT_ASSERT, 0);
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
+	if (__argc > 0 && __argv && __argv[0]) {
+		char *a0 = __argv[0], *p;
+		size_t len;
+
+		for (p = a0; *p; p++)
+			if (*p == '\\')
+				*p = '/';
+		len = strlen(a0);
+		if (len > 4 && !_stricmp(a0 + len - 4, ".exe"))
+			a0[len - 4] = '\0';
+	}
+
+	if (WSAStartup(MAKEWORD(2, 2), &wsa)) {
+		fprintf(stderr, "WSAStartup failed\n");
+		_exit(1);
+	}
+
+	s = WSASocketW(AF_INET, SOCK_DGRAM, 0, NULL, 0, 0);
+	if (s != INVALID_SOCKET) {
+		WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &g, sizeof(g),
+			 &wsarecvmsg_fn, sizeof(wsarecvmsg_fn), &n, NULL,
+			 NULL);
+		closesocket(s);
+	}
+
+	if (sockpair(sigwake) == 0) {
+		u_long nb = 1;
+
+		ioctlsocket(sigwake[0], FIONBIO, &nb);
+		ioctlsocket(sigwake[1], FIONBIO, &nb);
+	}
+	SetConsoleCtrlHandler(console_ctrl, TRUE);
+}
