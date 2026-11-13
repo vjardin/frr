@@ -461,6 +461,18 @@ add_dependencies(frr frr_genheaders frr_lib_clippy)
 frr_target_setup(frr "${FRR_SRC}/lib/assert")
 target_link_libraries(frr PUBLIC json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}")
 
+enable_language(RC)
+get_filename_component(_frr_rc_dir "${CMAKE_RC_COMPILER}" DIRECTORY)
+find_program(FRR_MC_COMPILER mc HINTS "${_frr_rc_dir}" REQUIRED)
+add_custom_command(
+	OUTPUT "${FRR_BLD}/eventlog.rc" "${FRR_BLD}/eventlog.h" "${FRR_BLD}/MSG00409.bin"
+	COMMAND "${FRR_MC_COMPILER}" -U -h "${FRR_BLD}" -r "${FRR_BLD}"
+		"${FRR_SRC}/lib/win32/eventlog.mc"
+	DEPENDS "${FRR_SRC}/lib/win32/eventlog.mc"
+	WORKING_DIRECTORY "${FRR_BLD}"
+	COMMENT "Generating the Event Log message table"
+	VERBATIM)
+
 set(FRR_DAEMONS)
 function(frr_daemon name)
 	cmake_parse_arguments(_d "" "" "SOURCES;CLIPPY;YANG;LIBS" ${ARGN})
@@ -469,6 +481,7 @@ function(frr_daemon name)
 	add_executable(${name}
 		${_d_SOURCES}
 		${_yang}
+		"${FRR_BLD}/eventlog.rc"
 		$<TARGET_OBJECTS:frr>
 		$<TARGET_OBJECTS:frr_win32>
 	)

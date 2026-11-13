@@ -2707,25 +2707,122 @@ int asprintf(char **strp, const char *fmt, ...)
 
 /* syslog: XXX todo use Windows' log services */
 
+/* syslog() like API to write to the Application event log of Windows */
+#define EVENTLOG_SOURCES L"SYSTEM\\CurrentControlSet\\Services\\EventLog\\Application\\"
+
+/* MessageId of the message of lib/win32/eventlog.mc */
+#define FRR_EVENT_TEXT 1
+
+/* longest message, in characters (the Event Log supports up to 31839) */
+#define SYSLOG_MSG_MAX 4096
+
 static char syslog_ident[64] = "frr";
+static HANDLE syslog_handle;
+static int syslog_mask = 0xff;
+static SRWLOCK syslog_lock = SRWLOCK_INIT;
+
+/* the registry key of an event source, pointing to this executable */
+static void syslog_register(const wchar_t *source)
+{
+	DWORD types = EVENTLOG_ERROR_TYPE | EVENTLOG_WARNING_TYPE | EVENTLOG_INFORMATION_TYPE;
+	wchar_t exe[MAX_PATH], cur[MAX_PATH], key[256];
+	DWORD len, size = sizeof(cur);
+	HKEY k;
+
+	len = GetModuleFileNameW(NULL, exe, MAX_PATH);
+	if (!len || len >= MAX_PATH)
+		return;
+	if (swprintf(key, _countof(key), EVENTLOG_SOURCES L"%ls", source) < 0)
+		return;
+
+	/* already right: nothing to write, which needs no privilege */
+	if (RegGetValueW(HKEY_LOCAL_MACHINE, key, L"EventMessageFile",
+			 RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, NULL, cur,
+			 &size) == ERROR_SUCCESS &&
+	    !_wcsicmp(cur, exe))
+		return;
+
+	if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, key, 0, NULL, 0, KEY_SET_VALUE, NULL, &k, NULL))
+		return;
+	RegSetValueExW(k, L"EventMessageFile", 0, REG_EXPAND_SZ, (const BYTE *)exe,
+		       (len + 1) * sizeof(wchar_t));
+	RegSetValueExW(k, L"TypesSupported", 0, REG_DWORD, (const BYTE *)&types, sizeof(types));
+	RegCloseKey(k);
+}
 
 void openlog(const char *ident, int option, int facility)
 {
+	wchar_t source[96];
+
 	(void)option;
 	(void)facility;
-	if (ident)
-		strncpy_s(syslog_ident, sizeof(syslog_ident), ident, _TRUNCATE);
+
+	AcquireSRWLockExclusive(&syslog_lock);
+	if (ident) {
+		const char *base = ident, *p;
+		size_t len;
+
+		/* argv[0] for FRR, a path on Windows: the program name only */
+		for (p = ident; *p; p++)
+			if (*p == '/' || *p == '\\' || *p == ':')
+				base = p + 1;
+		len = strlen(base);
+		if (len > 4 && !_stricmp(base + len - 4, ".exe"))
+			len -= 4;
+		if (len >= sizeof(syslog_ident))
+			len = sizeof(syslog_ident) - 1;
+		strncpy_s(syslog_ident, sizeof(syslog_ident), base, len);
+	}
+	if (syslog_handle)
+		DeregisterEventSource(syslog_handle);
+	syslog_handle = NULL;
+	if (swprintf(source, _countof(source), L"FRR %hs", syslog_ident) > 0) {
+		syslog_register(source);
+		syslog_handle = RegisterEventSourceW(NULL, source);
+	}
+	ReleaseSRWLockExclusive(&syslog_lock);
 }
 
 void vsyslog(int priority, const char *fmt, va_list ap)
 {
-	char buf[1024];
-	int n;
+	char buf[SYSLOG_MSG_MAX];
+	wchar_t text[SYSLOG_MSG_MAX];
+	const wchar_t *strings[1] = { text };
+	int level = LOG_PRI(priority);
+	bool opened;
+	WORD type;
 
-	(void)priority;
-	n = snprintf(buf, sizeof(buf), "%s: ", syslog_ident);
-	vsnprintf(buf + n, sizeof(buf) - n, fmt, ap);
+	if (!(LOG_MASK(level) & syslog_mask))
+		return;
+
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+
+	/* still visible in a debugger, as before */
 	OutputDebugStringA(buf);
+
+	if (!MultiByteToWideChar(CP_UTF8, 0, buf, -1, text, _countof(text)) &&
+	    !MultiByteToWideChar(CP_ACP, 0, buf, -1, text, _countof(text)))
+		return;
+	text[_countof(text) - 1] = L'\0';
+
+	if (level <= LOG_ERR)
+		type = EVENTLOG_ERROR_TYPE;
+	else if (level == LOG_WARNING)
+		type = EVENTLOG_WARNING_TYPE;
+	else
+		type = EVENTLOG_INFORMATION_TYPE;
+
+	/* syslog() without openlog() first */
+	AcquireSRWLockShared(&syslog_lock);
+	opened = syslog_handle != NULL;
+	ReleaseSRWLockShared(&syslog_lock);
+	if (!opened)
+		openlog(NULL, 0, 0);
+
+	AcquireSRWLockShared(&syslog_lock);
+	if (syslog_handle)
+		ReportEventW(syslog_handle, type, 0, FRR_EVENT_TEXT, NULL, 1, 0, strings, NULL);
+	ReleaseSRWLockShared(&syslog_lock);
 }
 
 void syslog(int priority, const char *fmt, ...)
@@ -2739,11 +2836,20 @@ void syslog(int priority, const char *fmt, ...)
 
 void closelog(void)
 {
+	AcquireSRWLockExclusive(&syslog_lock);
+	if (syslog_handle)
+		DeregisterEventSource(syslog_handle);
+	syslog_handle = NULL;
+	ReleaseSRWLockExclusive(&syslog_lock);
 }
 
 int setlogmask(int mask)
 {
-	return mask;
+	int old = syslog_mask;
+
+	if (mask)
+		syslog_mask = mask;
+	return old;
 }
 
 static char dl_err[256];
