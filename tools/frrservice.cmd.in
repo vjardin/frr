@@ -82,8 +82,10 @@ set "cmds=-s \"!sh! start %%s\" -k \"!sh! stop %%s\" -r \"!sh! restart %%s\""
 set "bin=\"!B_PATH!watchfrr.exe\" !nsopt! !cmds! !watchfrr_options!!list!"
 set "display=FRRouting"
 if defined pathspace set "display=FRRouting (!pathspace!)"
-"%SYS%\sc.exe" create !SERVICE! binPath= "!bin!" start= auto DisplayName= "!display!" obj= LocalSystem >NUL || (
-	echo %~nx0: could not create the service !SERVICE! 1>&2
+set "sccmd=create"
+"%SYS%\sc.exe" query !SERVICE! >NUL 2>&1 && set "sccmd=config"
+"%SYS%\sc.exe" !sccmd! !SERVICE! binPath= "!bin!" start= auto DisplayName= "!display!" obj= LocalSystem >NUL || (
+	echo %~nx0: could not !sccmd! the service !SERVICE! 1>&2
 	exit /b 1
 )
 "%SYS%\sc.exe" description !SERVICE! "FRRouting routing daemons, watched by watchfrr:!list!" >NUL
