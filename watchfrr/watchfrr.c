@@ -304,7 +304,11 @@ static pid_t run_background(char *shell_cmd)
 {
 	pid_t child;
 
+#ifdef _WIN32
+	switch (child = frr_win_spawn_shell(shell_cmd)) {
+#else
 	switch (child = fork()) {
+#endif
 	case -1:
 		flog_err_sys(EC_LIB_SYSTEM_CALL,
 			     "fork failed, cannot run command [%s]: %s",
