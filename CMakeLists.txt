@@ -89,6 +89,20 @@ if(FRR_LUA)
 	message(STATUS "Scripting with Lua 5.3 from ${FRR_LUA}")
 endif()
 
+set(FRR_NETSNMP "" CACHE PATH "Prefix of a net-snmp install (include/, lib/)")
+if(FRR_NETSNMP)
+	find_path(NETSNMP_INCLUDE_DIR net-snmp/net-snmp-config.h
+		HINTS "${FRR_NETSNMP}/include" NO_DEFAULT_PATH REQUIRED)
+	find_library(NETSNMP_LIBRARY netsnmp HINTS "${FRR_NETSNMP}/lib" NO_DEFAULT_PATH
+		REQUIRED)
+	find_library(NETSNMPAGENT_LIBRARY netsnmpagent HINTS "${FRR_NETSNMP}/lib"
+		NO_DEFAULT_PATH REQUIRED)
+	find_library(NETSNMPMIBS_LIBRARY netsnmpmibs HINTS "${FRR_NETSNMP}/lib"
+		NO_DEFAULT_PATH REQUIRED)
+	set(SNMP_AGENTX 1)
+	message(STATUS "SNMP (AgentX) with net-snmp from ${FRR_NETSNMP}")
+endif()
+
 set(FRR_VTYSH_DAEMON_NAMES zebra mgmtd bgpd ripd ripngd ospfd ospf6d
 	staticd eigrpd babeld bfdd sharpd)
 if(FRR_NPCAP_SDK)
@@ -1140,6 +1154,40 @@ if(c-ares_FOUND)
 		CLIPPY bgpd/bgp_bmp.c
 		LIB_SOURCES lib/resolver.c lib/win32/cares.c
 		LIBS c-ares::cares)
+endif()
+
+if(FRR_NETSNMP)
+	set(_snmp_lib_sources lib/agentx.c lib/snmp.c lib/win32/snmp.c)
+	set(_snmp_libs "${NETSNMPMIBS_LIBRARY}" "${NETSNMPAGENT_LIBRARY}"
+		"${NETSNMP_LIBRARY}")
+	set(_snmp_sources lib/agentx.c lib/snmp.c)
+	frr_module(bgpd snmp
+		SOURCES bgpd/bgp_snmp.c bgpd/bgp_snmp_bgp4.c bgpd/bgp_snmp_bgp4v2.c
+			bgpd/bgp_mplsvpn_snmp.c
+		CLIPPY bgpd/bgp_snmp.c
+		LIB_SOURCES ${_snmp_lib_sources}
+		LIBS ${_snmp_libs})
+	target_include_directories(bgpd PRIVATE "${NETSNMP_INCLUDE_DIR}")
+	list(APPEND _snmp_sources bgpd/bgp_snmp.c bgpd/bgp_snmp_bgp4.c
+		bgpd/bgp_snmp_bgp4v2.c bgpd/bgp_mplsvpn_snmp.c)
+	foreach(_d ospfd:ospfd/ospf_snmp.c ospf6d:ospf6d/ospf6_snmp.c
+			ripd:ripd/rip_snmp.c zebra:zebra/zebra_snmp.c
+			isisd:isisd/isis_snmp.c)
+		string(REPLACE ":" ";" _d "${_d}")
+		list(GET _d 0 _daemon)
+		list(GET _d 1 _source)
+		if(TARGET ${_daemon})
+			frr_module(${_daemon} snmp
+				SOURCES ${_source}
+				LIB_SOURCES ${_snmp_lib_sources}
+				LIBS ${_snmp_libs})
+			target_include_directories(${_daemon} PRIVATE
+				"${NETSNMP_INCLUDE_DIR}")
+			list(APPEND _snmp_sources ${_source})
+		endif()
+	endforeach()
+	set_source_files_properties(${_snmp_sources} PROPERTIES COMPILE_OPTIONS
+		"/FI${FRR_SRC}/lib/win32/snmp_win32.h")
 endif()
 message(STATUS "Modules: ${FRR_MODULES}")
 
