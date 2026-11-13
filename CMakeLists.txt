@@ -1113,8 +1113,11 @@ endforeach()
 
 file(TO_NATIVE_PATH "${FRR_STATEDIR}/etc" FRR_SYSCONFDIR_NATIVE)
 file(TO_NATIVE_PATH "${FRR_STATEDIR}/run" FRR_RUNSTATEDIR_NATIVE)
+file(TO_NATIVE_PATH "${FRR_STATEDIR}/crash" FRR_CRASHDIR_NATIVE)
 configure_file(tools/watchfrr.cmd.in "${FRR_BLD}/watchfrr.cmd" @ONLY NEWLINE_STYLE CRLF)
 install(PROGRAMS "${FRR_BLD}/watchfrr.cmd" DESTINATION sbin)
+configure_file(tools/frrservice.cmd.in "${FRR_BLD}/frrservice.cmd" @ONLY NEWLINE_STYLE CRLF)
+install(PROGRAMS "${FRR_BLD}/frrservice.cmd" DESTINATION sbin)
 install(TARGETS vtysh RUNTIME DESTINATION bin)
 install(FILES "$<TARGET_PDB_FILE:vtysh>" DESTINATION bin OPTIONAL)
 

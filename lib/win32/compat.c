@@ -1814,6 +1814,130 @@ unsigned int alarm(unsigned int seconds)
 	return 0;
 }
 
+#define SVC_STOP_WAIT_MSEC 30000
+#define SVC_STOP_COMMAND_MSEC 120000
+#define SVC_CHECKPOINT_MSEC 2000
+
+static SERVICE_STATUS_HANDLE svc_handle;
+static volatile LONG svc_stop_requested;
+static wchar_t svc_name[257];
+static SRWLOCK svc_lock = SRWLOCK_INIT;
+
+static void svc_report(DWORD state, DWORD exitcode, DWORD wait_hint)
+{
+	static DWORD checkpoint;
+	SERVICE_STATUS st = {
+		.dwServiceType = SERVICE_WIN32_OWN_PROCESS,
+		.dwCurrentState = state,
+		.dwWin32ExitCode = exitcode,
+		.dwWaitHint = wait_hint,
+	};
+
+	if (state == SERVICE_RUNNING)
+		st.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+	AcquireSRWLockExclusive(&svc_lock);
+	if (state != SERVICE_RUNNING && state != SERVICE_STOPPED)
+		st.dwCheckPoint = ++checkpoint;
+	SetServiceStatus(svc_handle, &st);
+	ReleaseSRWLockExclusive(&svc_lock);
+}
+
+static DWORD WINAPI svc_control(DWORD control, DWORD type, LPVOID data, LPVOID ctx)
+{
+	(void)type;
+	(void)data;
+	(void)ctx;
+
+	switch (control) {
+	case SERVICE_CONTROL_INTERROGATE:
+		return ERROR_SUCCESS;
+	case SERVICE_CONTROL_STOP:
+	case SERVICE_CONTROL_SHUTDOWN:
+		if (!InterlockedExchange(&svc_stop_requested, 1)) {
+			svc_report(SERVICE_STOP_PENDING, ERROR_SUCCESS, SVC_STOP_WAIT_MSEC);
+			sig_deliver(SIGTERM);
+		}
+		return ERROR_SUCCESS;
+	default:
+		return ERROR_CALL_NOT_IMPLEMENTED;
+	}
+}
+
+static void WINAPI svc_main(DWORD argc, LPWSTR *argv)
+{
+	if (argc > 0 && argv[0])
+		wcsncpy_s(svc_name, _countof(svc_name), argv[0], _TRUNCATE);
+
+	svc_handle = RegisterServiceCtrlHandlerExW(svc_name, svc_control, NULL);
+	if (svc_handle)
+		svc_report(SERVICE_RUNNING, ERROR_SUCCESS, 0);
+}
+
+static DWORD WINAPI svc_dispatcher(LPVOID arg)
+{
+	SERVICE_TABLE_ENTRYW table[] = {
+		{ L"", svc_main },
+		{ NULL, NULL },
+	};
+
+	(void)arg;
+	/* returns once the service is stopped, or at once if not a service */
+	StartServiceCtrlDispatcherW(table);
+	return 0;
+}
+
+static void svc_stop_command(void)
+{
+	wchar_t key[300], command[2048], line[2200], comspec[MAX_PATH];
+	PROCESS_INFORMATION pi;
+	STARTUPINFOW si = { .cb = sizeof(si) };
+	DWORD size = sizeof(command), waited;
+
+	if (swprintf(key, _countof(key), L"SYSTEM\\CurrentControlSet\\Services\\%ls\\Parameters",
+		     svc_name) < 0 ||
+	    RegGetValueW(HKEY_LOCAL_MACHINE, key, L"StopCommand", RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
+			 NULL, command, &size) != ERROR_SUCCESS ||
+	    !command[0])
+		return;
+
+	if (!GetEnvironmentVariableW(L"ComSpec", comspec, _countof(comspec)) ||
+	    swprintf(line, _countof(line), L"\"%ls\" /d /s /c \"%ls\"", comspec, command) < 0)
+		return;
+
+	if (!CreateProcessW(NULL, line, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+		return;
+	CloseHandle(pi.hThread);
+
+	for (waited = 0; waited < SVC_STOP_COMMAND_MSEC; waited += SVC_CHECKPOINT_MSEC) {
+		if (WaitForSingleObject(pi.hProcess, SVC_CHECKPOINT_MSEC) != WAIT_TIMEOUT)
+			break;
+		svc_report(SERVICE_STOP_PENDING, ERROR_SUCCESS, SVC_CHECKPOINT_MSEC * 2);
+	}
+	CloseHandle(pi.hProcess);
+}
+
+static void svc_atexit(void)
+{
+	if (!svc_handle)
+		return;
+
+	if (svc_stop_requested) {
+		svc_report(SERVICE_STOP_PENDING, ERROR_SUCCESS, SVC_CHECKPOINT_MSEC * 2);
+		svc_stop_command();
+	}
+	svc_report(SERVICE_STOPPED, svc_stop_requested ? ERROR_SUCCESS : ERROR_PROCESS_ABORTED, 0);
+}
+
+static void svc_init(void)
+{
+	HANDLE t = CreateThread(NULL, 0, svc_dispatcher, NULL, 0, NULL);
+
+	if (t) {
+		CloseHandle(t);
+		atexit(svc_atexit);
+	}
+}
+
 /* There is no fork() */
 #define CHILD_MAX 64
 
@@ -3437,4 +3561,5 @@ static void __attribute__((constructor(101))) frr_win_startup(void)
 	}
 	SetConsoleCtrlHandler(console_ctrl, TRUE);
 	SetUnhandledExceptionFilter(crash_filter);
+	svc_init();
 }
