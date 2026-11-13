@@ -8,6 +8,7 @@ dev_RSTFILES = \
 	doc/developer/bmp.rst \
 	doc/developer/building-frr-for-alpine.rst \
 	doc/developer/building-frr-for-archlinux.rst \
+	doc/developer/building-frr-for-windows.rst \
 	doc/developer/building-frr-for-centos6.rst \
 	doc/developer/building-frr-for-centos7.rst \
 	doc/developer/building-frr-for-debian8.rst \
