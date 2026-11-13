@@ -360,6 +360,10 @@ struct vty_arg {
 #define IS_DIRECTORY_SEP(c) ((c) == DIRECTORY_SEP)
 #endif
 
+#ifndef IS_ABSOLUTE_PATH
+#define IS_ABSOLUTE_PATH(p) IS_DIRECTORY_SEP((p)[0])
+#endif
+
 extern struct nb_config *vty_mgmt_candidate_config;
 extern bool vty_log_commands;
 

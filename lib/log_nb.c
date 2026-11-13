@@ -47,7 +47,7 @@ static int set_log_file(struct zlog_cfg_file *target, struct vty *vty, const cha
 	bool ok;
 
 	/* Path detection. */
-	if (!IS_DIRECTORY_SEP(*fname)) {
+	if (!IS_ABSOLUTE_PATH(fname)) {
 		char cwd[MAXPATHLEN + 1];
 		int pr;
 
@@ -119,7 +119,7 @@ void command_setup_early_logging(const char *dest, const char *level)
 	}
 	if (strcmp(type, "file") == 0 && sep) {
 		sep++;
-		if (!set_log_file(&zt_file_cmdline, NULL, sep, nlevel))
+		if (set_log_file(&zt_file_cmdline, NULL, sep, nlevel) != CMD_SUCCESS)
 			fprintf(stderr, "Unable to set log file: %s\n", sep);
 		return;
 	}
