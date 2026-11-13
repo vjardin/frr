@@ -149,6 +149,11 @@ extern "C" {
 
 #define strmatch(a,b) (!strcmp((a), (b)))
 
+/* UTC offset of a broken-down local time (not always a struct tm member) */
+#ifndef TM_GMTOFF
+#define TM_GMTOFF(tmp) ((tmp)->tm_gmtoff)
+#endif
+
 #if BYTE_ORDER == LITTLE_ENDIAN
 #define htonll(x) (((uint64_t)htonl((x)&0xFFFFFFFF) << 32) | htonl((x) >> 32))
 #define ntohll(x) (((uint64_t)ntohl((x)&0xFFFFFFFF) << 32) | ntohl((x) >> 32))

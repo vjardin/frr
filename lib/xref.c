@@ -79,6 +79,11 @@ static void xref_add_one(const struct xref *xref)
 	 * screwed up by out of tree builds or absolute pathnames.
 	 */
 	filename = xref->file;
+#ifdef _WIN32
+	char win_filename[XREF_WIN32_FILENAME_MAX];
+
+	filename = frr_win_xref_filename(filename, win_filename, sizeof(win_filename));
+#endif
 	p = strrchr(filename, '/');
 	if (p) {
 		q = memrchr(filename, '/', p - filename);

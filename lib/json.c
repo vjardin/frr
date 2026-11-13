@@ -322,7 +322,7 @@ static int frr_json_obj_to_vty(struct vty *vty, struct json_object *jobj,
 				frr_json_obj_to_vty(vty, jval, pb, level + 1, jflags);
 
 				/* Remove child after output */
-				lh_table_delete_entry(lhtable, lhentry);
+				json_object_object_del(jobj, key);
 				lhentry = lhtable->head;
 			} else {
 				/* Flush any pending output */
@@ -334,7 +334,7 @@ static int frr_json_obj_to_vty(struct vty *vty, struct json_object *jobj,
 				vty_out(vty, "%s", str);
 
 				/* Remove child after output */
-				lh_table_delete_entry(lhtable, lhentry);
+				json_object_object_del(jobj, key);
 				lhentry = lhtable->head;
 			}
 		}

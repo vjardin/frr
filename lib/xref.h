@@ -289,4 +289,8 @@ struct _xref_p {
 }
 #endif
 
+#ifdef _WIN32
+#include "lib/win32/xref_win32.h"
+#endif
+
 #endif /* _FRR_XREF_H */

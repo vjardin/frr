@@ -939,8 +939,8 @@ size_t zlog_msg_ts(struct zlog_msg *msg, struct fbuf *out, uint32_t flags)
 		} else
 			snprintfrr(msg->ts_zonetail, sizeof(msg->ts_zonetail),
 				   "%+03d:%02d",
-				   (int)(tm.tm_gmtoff / 3600),
-				   (int)(labs(tm.tm_gmtoff) / 60) % 60);
+				   (int)(TM_GMTOFF(&tm) / 3600),
+				   (int)(labs(TM_GMTOFF(&tm)) / 60) % 60);
 
 		msg->ts_dot = msg->ts_str + strlen(msg->ts_str);
 		snprintfrr(msg->ts_dot,
@@ -1129,6 +1129,14 @@ void zlog_init(const char *progname, const char *protoname,
 		zlog_prefixsz = snprintfrr(zlog_prefix, sizeof(zlog_prefix),
 					   "%s: ", protoname);
 	}
+
+#ifdef _WIN32
+	/* no openat(): per-thread log buffers/crashlog files are not
+	 * available, log messages are written out directly instead
+	 */
+	hook_call(zlog_init, progname, protoname, instance, uid, gid);
+	return;
+#endif
 
 	if (mkdir(TMPBASEDIR, 0700) != 0) {
 		if (errno != EEXIST) {

@@ -2758,7 +2758,7 @@ void event_call(struct event *event)
 	event->master->last_getrusage = after;
 
 	unsigned long walltime, cputime;
-	unsigned long exp;
+	size_t exp;
 
 	walltime = event_consumed_time(&after, &before, &cputime);
 
@@ -2806,8 +2806,8 @@ void event_call(struct event *event)
 					  1, memory_order_seq_cst);
 		flog_warn(
 			EC_LIB_SLOW_THREAD_CPU,
-			"CPU HOG: task %s (%lx) ran for %lums (cpu time %lums)",
-			event->xref->funcname, (unsigned long)event->func,
+			"CPU HOG: task %s (%" PRIxPTR ") ran for %lums (cpu time %lums)",
+			event->xref->funcname, (uintptr_t)event->func,
 			walltime / 1000, cputime / 1000);
 
 	} else if (walltime_threshold && walltime > walltime_threshold) {
@@ -2820,8 +2820,8 @@ void event_call(struct event *event)
 					  1, memory_order_seq_cst);
 		flog_warn(
 			EC_LIB_SLOW_THREAD_WALL,
-			"STARVATION: task %s (%lx) ran for %lums (cpu time %lums)",
-			event->xref->funcname, (unsigned long)event->func,
+			"STARVATION: task %s (%" PRIxPTR ") ran for %lums (cpu time %lums)",
+			event->xref->funcname, (uintptr_t)event->func,
 			walltime / 1000, cputime / 1000);
 	}
 }
