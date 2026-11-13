@@ -393,6 +393,7 @@ set(FRR_LIB_SOURCES
 	lib/yang_wrappers.c
 	lib/zclient.c
 	lib/zlog.c
+	lib/zlog_live.c
 	lib/zlog_recirculate.c
 	lib/zlog_targets.c
 	lib/printf/printf-pos.c

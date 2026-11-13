@@ -831,6 +831,195 @@ static bool sendmsg_hoplimit(SOCKET s, const struct msghdr *msg)
 	return true;
 }
 
+/*
+ * The sender duplicates the socket into the process at the other end,
+ * which SIO_AF_UNIX_GETPEERPID gives, with WSADuplicateSocketW(), and sends
+ * the WSAPROTOCOL_INFOW that it gets ahead of the data, behind a marker:
+ * the record that stands for the control message. The receiver, when it
+ * reads with room for a control message, takes the record out of the
+ * stream and imports the socket with WSASocketW(), to give it as the
+ * descriptor of an SCM_RIGHTS message, together with the data that
+ * follows. The marker starts with 0xff 0xfe, which UTF-8 text, what goes
+ * over these sockets, never has. Only sockets can be passed so.
+ */
+#define FD_PASS_MAGIC "\xff\xfe" "FD"
+#define FD_PASS_MAGIC_LEN 4
+#define FD_PASS_SEND_MSEC 10000
+
+struct fd_pass_rec {
+	char magic[FD_PASS_MAGIC_LEN];
+	uint32_t len;
+	WSAPROTOCOL_INFOW info;
+};
+
+/* the descriptor of an SCM_RIGHTS control message, or -1 */
+static int fd_pass_cmsg(const struct msghdr *msg)
+{
+	struct cmsghdr *cm = CMSG_FIRSTHDR(msg);
+	int pass_fd = -1;
+
+	if (cm && cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS &&
+	    cm->cmsg_len >= CMSG_LEN(sizeof(int)))
+		memcpy(&pass_fd, CMSG_DATA(cm), sizeof(int));
+	return pass_fd;
+}
+
+static ssize_t fd_pass_send(SOCKET s, const struct msghdr *msg, int pass_fd)
+{
+	SOCKET ps = frr_win_fd2sock(pass_fd);
+	struct fd_pass_rec rec = { .len = sizeof(WSAPROTOCOL_INFOW) };
+	size_t datalen = 0, total, off = 0, i;
+	ULONG peer = 0;
+	DWORD n, waited = 0;
+	char *buf;
+
+	if (ps == INVALID_SOCKET) {
+		errno = EBADF;
+		return -1;
+	}
+	if (WSAIoctl(s, SIO_AF_UNIX_GETPEERPID, NULL, 0, &peer, sizeof(peer), &n, NULL, NULL) ||
+	    WSADuplicateSocketW(ps, peer, &rec.info))
+		return sock_fail();
+	memcpy(rec.magic, FD_PASS_MAGIC, FD_PASS_MAGIC_LEN);
+
+	for (i = 0; i < (size_t)msg->msg_iovlen; i++)
+		datalen += msg->msg_iov[i].iov_len;
+	total = sizeof(rec) + datalen;
+	buf = malloc(total);
+	if (!buf) {
+		errno = ENOMEM;
+		return -1;
+	}
+	memcpy(buf, &rec, sizeof(rec));
+	for (i = 0, off = sizeof(rec); i < (size_t)msg->msg_iovlen; i++) {
+		memcpy(buf + off, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
+		off += msg->msg_iov[i].iov_len;
+	}
+
+	/* all of it, a record cut short would be read as data */
+	for (off = 0; off < total;) {
+		int rc = send(s, buf + off, (int)(total - off), 0);
+		WSAPOLLFD p = { .fd = s, .events = POLLWRNORM };
+
+		if (rc != SOCKET_ERROR) {
+			off += (size_t)rc;
+			continue;
+		}
+		if (WSAGetLastError() != WSAEWOULDBLOCK || waited >= FD_PASS_SEND_MSEC) {
+			free(buf);
+			return sock_fail();
+		}
+		WSAPoll(&p, 1, 100);
+		waited += 100;
+	}
+	free(buf);
+	return (ssize_t)datalen;
+}
+
+static size_t fd_pass_find(const char *data, size_t len)
+{
+	size_t i, n;
+
+	for (i = 0; i < len; i++) {
+		n = len - i < FD_PASS_MAGIC_LEN ? len - i : FD_PASS_MAGIC_LEN;
+		if (!memcmp(data + i, FD_PASS_MAGIC, n))
+			return i;
+	}
+	return len;
+}
+
+static ssize_t fd_pass_scatter(SOCKET s, const struct msghdr *msg, char *tmp, size_t len)
+{
+	size_t off = 0, i, n;
+	int rc;
+
+	rc = recv(s, tmp, (int)len, 0);
+	if (rc == SOCKET_ERROR)
+		return sock_fail();
+	for (i = 0; i < (size_t)msg->msg_iovlen && off < (size_t)rc; i++) {
+		n = msg->msg_iov[i].iov_len;
+		if (n > (size_t)rc - off)
+			n = (size_t)rc - off;
+		memcpy(msg->msg_iov[i].iov_base, tmp + off, n);
+		off += n;
+	}
+	return (ssize_t)off;
+}
+
+static ssize_t fd_pass_recv(SOCKET s, struct msghdr *msg)
+{
+	struct cmsghdr *cm = msg->msg_control;
+	struct fd_pass_rec rec;
+	size_t total = 0, i, at;
+	ssize_t got;
+	SOCKET ns;
+	char *tmp;
+	int rc, nfd;
+
+	for (i = 0; i < (size_t)msg->msg_iovlen; i++)
+		total += msg->msg_iov[i].iov_len;
+	if (!total)
+		return -2;
+	tmp = malloc(total + sizeof(rec));
+	if (!tmp)
+		return -2;
+
+	rc = recv(s, tmp, (int)(total + sizeof(rec)), MSG_PEEK);
+	if (rc == SOCKET_ERROR || rc == 0) {
+		free(tmp);
+		return -2;
+	}
+	at = fd_pass_find(tmp, (size_t)rc);
+
+	/* data first, up to a record if one follows */
+	if (at > 0) {
+		got = fd_pass_scatter(s, msg, tmp, at < total ? at : total);
+		msg->msg_controllen = 0;
+		free(tmp);
+		return got;
+	}
+
+	/* a record: all of it, sent in one go */
+	rc = recv(s, (char *)&rec, sizeof(rec), MSG_WAITALL);
+	if (rc != (int)sizeof(rec) || memcmp(rec.magic, FD_PASS_MAGIC, FD_PASS_MAGIC_LEN) ||
+	    rec.len != sizeof(WSAPROTOCOL_INFOW)) {
+		free(tmp);
+		errno = EPROTO;
+		return -1;
+	}
+	ns = WSASocketW(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, &rec.info, 0,
+			WSA_FLAG_OVERLAPPED);
+	nfd = ns == INVALID_SOCKET ? -1 : fd_alloc(ns);
+
+	memset(cm, 0, CMSG_SPACE(sizeof(int)));
+	cm->cmsg_len = CMSG_LEN(sizeof(int));
+	cm->cmsg_level = SOL_SOCKET;
+	cm->cmsg_type = SCM_RIGHTS;
+	memcpy(CMSG_DATA(cm), &nfd, sizeof(int));
+	msg->msg_controllen = CMSG_SPACE(sizeof(int));
+
+	/* and the data that came with it, up to another record */
+	rc = recv(s, tmp, (int)total, MSG_PEEK);
+	if (rc == SOCKET_ERROR || rc == 0) {
+		free(tmp);
+		return 0;
+	}
+	at = fd_pass_find(tmp, (size_t)rc);
+	got = at ? fd_pass_scatter(s, msg, tmp, at) : 0;
+	free(tmp);
+	return got;
+}
+
+static int sock_family(SOCKET s)
+{
+	WSAPROTOCOL_INFOW pi;
+	int len = sizeof(pi);
+
+	if (getsockopt(s, SOL_SOCKET, SO_PROTOCOL_INFOW, (char *)&pi, &len))
+		return AF_UNSPEC;
+	return pi.iAddressFamily;
+}
+
 ssize_t frr_win_sendmsg(int fd, const struct msghdr *msg, int flags)
 {
 	SOCK_OR_FAIL(s, fd);
@@ -839,6 +1028,14 @@ ssize_t frr_win_sendmsg(int fd, const struct msghdr *msg, int flags)
 	DWORD sent = 0;
 	bool r;
 	int rc;
+
+	if (msg->msg_control && msg->msg_controllen && sock_type(s) == SOCK_STREAM &&
+	    sock_family(s) == AF_UNIX) {
+		int pass_fd = fd_pass_cmsg(msg);
+
+		if (pass_fd >= 0)
+			return fd_pass_send(s, msg, pass_fd);
+	}
 
 	bufs = iov_to_wsabuf(msg->msg_iov, msg->msg_iovlen, stack);
 	if (!bufs) {
@@ -887,6 +1084,15 @@ ssize_t frr_win_recvmsg(int fd, struct msghdr *msg, int flags)
 	DWORD got = 0, wflags = flags & ~MSG_DONTWAIT;
 	bool r;
 	int rc;
+
+	if (msg->msg_control && msg->msg_controllen >= CMSG_SPACE(sizeof(int)) &&
+	    !(flags & (MSG_PEEK | MSG_DONTWAIT)) && sock_type(s) == SOCK_STREAM &&
+	    sock_family(s) == AF_UNIX) {
+		ssize_t passed = fd_pass_recv(s, msg);
+
+		if (passed != -2)
+			return passed;
+	}
 
 	bufs = iov_to_wsabuf(msg->msg_iov, msg->msg_iovlen, stack);
 	if (!bufs) {
@@ -993,6 +1199,35 @@ fail:
 	return -1;
 }
 
+static int dgrampair(SOCKET sv[2])
+{
+	struct sockaddr_in sin[2];
+	int i, len;
+
+	sv[0] = sv[1] = INVALID_SOCKET;
+	for (i = 0; i < 2; i++) {
+		memset(&sin[i], 0, sizeof(sin[i]));
+		sin[i].sin_family = AF_INET;
+		sin[i].sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+		len = sizeof(sin[i]);
+		sv[i] = WSASocketW(AF_INET, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, 0);
+		if (sv[i] == INVALID_SOCKET ||
+		    bind(sv[i], (struct sockaddr *)&sin[i], sizeof(sin[i])) ||
+		    getsockname(sv[i], (struct sockaddr *)&sin[i], &len))
+			goto fail;
+	}
+	if (connect(sv[0], (struct sockaddr *)&sin[1], sizeof(sin[1])) ||
+	    connect(sv[1], (struct sockaddr *)&sin[0], sizeof(sin[0])))
+		goto fail;
+	return 0;
+fail:
+	sock_fail();
+	for (i = 0; i < 2; i++)
+		if (sv[i] != INVALID_SOCKET)
+			closesocket(sv[i]);
+	return -1;
+}
+
 int frr_win_socketpair(int domain, int type, int protocol, int fds[2])
 {
 	SOCKET sv[2];
@@ -1000,7 +1235,12 @@ int frr_win_socketpair(int domain, int type, int protocol, int fds[2])
 
 	(void)domain;
 	(void)protocol;
-	if (sockpair(sv))
+	type &= ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
+	if (type == SOCK_SEQPACKET) {
+		errno = EPROTONOSUPPORT;
+		return -1;
+	}
+	if (type == SOCK_DGRAM ? dgrampair(sv) : sockpair(sv))
 		return -1;
 	fds[0] = fd_alloc(sv[0]);
 	if (fds[0] < 0) {
