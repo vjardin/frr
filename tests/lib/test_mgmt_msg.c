@@ -117,7 +117,12 @@ static void test_disconnect_in_handler(void)
 	char sopath[sizeof(sun.sun_path)];
 	int fd;
 
+#ifdef _WIN32
+	/* no /tmp: the directory the test runs in */
+	snprintfrr(sopath, sizeof(sopath), "test_mgmt_msg-%d.sock", getpid());
+#else
 	snprintfrr(sopath, sizeof(sopath), "/tmp/test_mgmt_msg-%d.sock", getpid());
+#endif
 	unlink(sopath);
 	assert(msg_server_init(&server, sopath, master, dih_create, "test-server", &dbg) == 0);
 

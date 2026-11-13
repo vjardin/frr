@@ -191,7 +191,10 @@ int main(int argc, char **argv)
 	printchk("         192.168.1.2", "%20pI4", &ip);
 	printchk("192.168.1.2         ", "%-20pI4", &ip);
 
+#ifndef _WIN32
+	/* the %p of the C runtime has no "0x" and upper case digits */
 	printcmp("%p", &ip);
+#endif
 
 	test_va("VA [192.168.1.2 1234] --", "%pI4 %u", &ip, 1234);
 
@@ -333,7 +336,7 @@ int main(int argc, char **argv)
 	/* time printing */
 
 	/* need a non-UTC timezone for testing */
-	setenv("TZ", "TEST-01:00", 1);
+	setenv("TZ", "TST-01:00", 1);
 	tzset();
 
 	struct timespec ts;

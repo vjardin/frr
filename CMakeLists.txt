@@ -1105,6 +1105,90 @@ if(FRR_RUNTIME_DLLS)
 	endforeach()
 endif()
 
+# tests/lib: the unit tests of libfrr that build on Windows, run by ctest.
+# As with "make check", a test passes when it exits with 0 and, if it has a
+# .refout file, prints exactly that.
+
+option(FRR_TESTS "Build the unit tests of libfrr" ON)
+if(FRR_TESTS)
+	enable_testing()
+	set(FRR_TEST_DIR "${FRR_BLD}/tests/lib")
+
+	function(frr_test name)
+		cmake_parse_arguments(_t "NOLIB" "" "SOURCES;CLIPPY" ${ARGN})
+		frr_clippy(_clippy ${_t_CLIPPY})
+		if(_t_NOLIB)
+			set(_lib)
+		else()
+			set(_lib $<TARGET_OBJECTS:frr>)
+		endif()
+		add_executable(${name} ${_t_SOURCES} "${FRR_BLD}/eventlog.rc"
+			${_lib} $<TARGET_OBJECTS:frr_win32>)
+		add_custom_target(${name}_clippy DEPENDS ${_clippy})
+		add_dependencies(${name} frr_genheaders ${name}_clippy frr_lib_clippy)
+		if(_t_NOLIB)
+			set(_assert)
+		else()
+			set(_assert "${FRR_SRC}/lib/assert")
+		endif()
+		frr_target_setup(${name} ${_assert} "${FRR_SRC}/tests/lib"
+			"${FRR_SRC}/tests/helpers/c" "${FRR_SRC}/tests")
+		target_link_libraries(${name} PRIVATE
+			json-c::json-c PCRE2::POSIX "${LIBYANG_LIBRARY}")
+		set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${FRR_TEST_DIR}")
+		if(FRR_RUNTIME_DLLS)
+			add_custom_command(TARGET ${name} POST_BUILD
+				COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${FRR_RUNTIME_DLLS}
+					"${FRR_TEST_DIR}")
+		endif()
+	endfunction()
+
+	set(_prng tests/helpers/c/prng.c)
+	frr_test(test_assert SOURCES tests/lib/test_assert.c)
+	frr_test(test_atomlist SOURCES tests/lib/test_atomlist.c)
+	frr_test(test_bfd_timer SOURCES tests/lib/test_bfd_timer.c)
+	frr_test(test_darr SOURCES tests/lib/test_darr.c)
+	frr_test(test_graph SOURCES tests/lib/test_graph.c)
+	frr_test(test_idalloc SOURCES tests/lib/test_idalloc.c)
+	frr_test(test_link_state SOURCES tests/lib/test_link_state.c)
+	frr_test(test_mgmt_msg SOURCES tests/lib/test_mgmt_msg.c)
+	frr_test(test_network_address SOURCES tests/lib/test_network_address.c)
+	frr_test(test_nexthop SOURCES tests/lib/test_nexthop.c)
+	frr_test(test_nexthop_iter SOURCES tests/lib/test_nexthop_iter.c ${_prng})
+	frr_test(test_ntop SOURCES tests/lib/test_ntop.c ${_prng} NOLIB)
+	frr_test(test_prefix2str SOURCES tests/lib/test_prefix2str.c ${_prng})
+	frr_test(test_printfrr SOURCES tests/lib/test_printfrr.c)
+	frr_test(test_ptm_lib SOURCES tests/lib/test_ptm_lib.c)
+	frr_test(test_rcu SOURCES tests/lib/test_rcu.c)
+	frr_test(test_ringbuf SOURCES tests/lib/test_ringbuf.c)
+	frr_test(test_srcdest_table SOURCES tests/lib/test_srcdest_table.c ${_prng})
+	frr_test(test_srv6_sid_notify SOURCES tests/lib/test_srv6_sid_notify.c)
+	frr_test(test_stream SOURCES tests/lib/test_stream.c)
+	frr_test(test_stream_expand SOURCES tests/lib/test_stream_expand.c)
+	frr_test(test_table SOURCES tests/lib/test_table.c)
+	frr_test(test_timer_correctness SOURCES tests/lib/test_timer_correctness.c ${_prng})
+	frr_test(test_ttable SOURCES tests/lib/test_ttable.c)
+	frr_test(test_versioncmp SOURCES tests/lib/test_versioncmp.c)
+	frr_test(test_xref SOURCES tests/lib/test_xref.c)
+	foreach(_t assert atomlist bfd_timer darr graph idalloc link_state mgmt_msg
+		network_address nexthop nexthop_iter ntop prefix2str printfrr ptm_lib
+		rcu ringbuf srcdest_table srv6_sid_notify stream stream_expand table
+		timer_correctness ttable versioncmp xref)
+		add_test(NAME test_${_t}
+			COMMAND "${Python3_EXECUTABLE}"
+				"${FRR_SRC}/tests/helpers/python/runtest_win32.py"
+				"${FRR_SRC}/tests/lib/test_${_t}.py"
+			WORKING_DIRECTORY "${FRR_BLD}/tests")
+	endforeach()
+
+	frr_test(test_segv SOURCES tests/lib/test_segv.c)
+	# keep the NULL store of func1()
+	target_compile_options(test_segv PRIVATE /clang:-fno-delete-null-pointer-checks)
+	add_test(NAME test_segv COMMAND test_segv WORKING_DIRECTORY "${FRR_TEST_DIR}")
+	set_tests_properties(test_segv PROPERTIES PASS_REGULAR_EXPRESSION
+		"Received signal 11 .*Backtrace for [0-9]+ stack frames.*func1.*in thread threadfunc")
+endif()
+
 install(TARGETS ${FRR_VTYSH_DAEMONS} RUNTIME DESTINATION sbin)
 # the program databases, for the names in backtraces and for debuggers
 foreach(_daemon ${FRR_VTYSH_DAEMONS})
