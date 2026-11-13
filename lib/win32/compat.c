@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <sys/file.h>
 #include <net/if.h>
+#include <netinet/icmp6.h>
 #include <syslog.h>
 #include <dlfcn.h>
 #include <getopt.h>
@@ -228,6 +229,11 @@ int frr_win_strerror_r(int errnum, char *buf, size_t buflen)
 static SOCKET fd_sock[FD_TABLE_SIZE];
 static bool fd_nonblock[FD_TABLE_SIZE];
 
+static bool fd_icmp6[FD_TABLE_SIZE];
+static struct icmp6_filter *fd_icmp6_filter[FD_TABLE_SIZE];
+
+static void rs_helper_del(int fd, unsigned int ifindex);
+
 SOCKET frr_win_fd2sock(int fd)
 {
 	if (fd < 0 || fd >= FD_TABLE_SIZE || !fd_sock[fd])
@@ -269,6 +275,17 @@ static int fd_alloc(SOCKET s)
 	return fd;
 }
 
+static void fd_release(int fd)
+{
+	if (fd_icmp6[fd])
+		rs_helper_del(fd, 0);
+	fd_sock[fd] = 0;
+	fd_nonblock[fd] = false;
+	fd_icmp6[fd] = false;
+	free(fd_icmp6_filter[fd]);
+	fd_icmp6_filter[fd] = NULL;
+}
+
 #define SOCK_OR_FAIL(var, fd)                                                  \
 	SOCKET var = frr_win_fd2sock(fd);                                      \
 	do {                                                                   \
@@ -297,6 +314,8 @@ int frr_win_socket(int domain, int type, int protocol)
 	fd = fd_alloc(WSASocketW(domain, type, protocol, NULL, 0, 0));
 	if (fd >= 0 && (flags & SOCK_NONBLOCK))
 		set_nonblock(fd, fd_sock[fd], true);
+	if (fd >= 0)
+		fd_icmp6[fd] = domain == AF_INET6 && type == SOCK_RAW && protocol == IPPROTO_ICMPV6;
 	if (fd >= 0 && type == SOCK_RAW &&
 	    (domain == AF_INET || domain == AF_INET6)) {
 		struct sockaddr_storage any = { .ss_family = (ADDRESS_FAMILY)domain };
@@ -387,6 +406,207 @@ int frr_win_getsockopt(int fd, int level, int opt, void *val, socklen_t *len)
 	return getsockopt(s, level, opt, val, len) ? sock_fail() : 0;
 }
 
+/*
+ * Router solicitations for raw ICMPv6 sockets.
+ *
+ * Windows keeps away from raw sockets the ICMPv6 messages that its stack
+ * handles itself: echo requests, and the router solicitations that a host
+ * must discard (RFC 4861, 6.1.1). So zebra, which sends router
+ * advertisements, never hears a solicitation, whether forwarding is on or
+ * not. It does as long as a socket on the interface has SIO_RCVALL set,
+ * even in RCVALL_IPLEVEL mode, which leaves the adapter out of promiscuous
+ * mode: something that Microsoft does not document!
+ */
+#define RS_HELPER_MAX 64
+
+#define RS_HELPER_TRIES 60
+#define RS_HELPER_RETRY_MSEC 1000
+
+/* from <mstcpip.h>, which collides with the FRR shims */
+#ifndef SIO_RCVALL
+#define SIO_RCVALL _WSAIOW(IOC_VENDOR, 1)
+#endif
+#define RS_RCVALL_IPLEVEL 3
+
+static struct {
+	bool used;
+	int fd;
+	unsigned int ifindex;
+	/* 0 while the interface has no usable link-local address */
+	SOCKET s;
+	int tries;
+} rs_helper[RS_HELPER_MAX];
+static SRWLOCK rs_helper_lock = SRWLOCK_INIT;
+static PTP_TIMER rs_helper_timer;
+
+static bool rs_helper_linklocal(unsigned int ifindex, struct sockaddr_in6 *ll)
+{
+	SOCKET_ADDRESS_LIST *list = NULL;
+	DWORD size = 4096, ret;
+	bool found = false;
+	SOCKET q;
+	int i;
+
+	q = WSASocketW(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, NULL, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+	if (q == INVALID_SOCKET)
+		return false;
+
+	for (i = 0; i < 4; i++, size *= 4) {
+		free(list);
+		list = malloc(size);
+		if (!list)
+			break;
+		if (!WSAIoctl(q, SIO_ADDRESS_LIST_QUERY, NULL, 0, list, size, &ret, NULL, NULL))
+			break;
+		if (WSAGetLastError() != WSAEFAULT) {
+			free(list);
+			list = NULL;
+			break;
+		}
+	}
+
+	for (i = 0; list && i < list->iAddressCount && !found; i++) {
+		const struct sockaddr_in6 *a = (struct sockaddr_in6 *)list->Address[i].lpSockaddr;
+
+		if (a->sin6_family == AF_INET6 && IN6_IS_ADDR_LINKLOCAL(&a->sin6_addr) &&
+		    a->sin6_scope_id == ifindex) {
+			*ll = *a;
+			found = true;
+		}
+	}
+
+	free(list);
+	closesocket(q);
+	return found;
+}
+
+static SOCKET rs_helper_open(unsigned int ifindex)
+{
+	DWORD mode = RS_RCVALL_IPLEVEL, zero = 0, ret;
+	struct sockaddr_in6 ll;
+	SOCKET s;
+
+	if (!rs_helper_linklocal(ifindex, &ll))
+		return INVALID_SOCKET;
+
+	s = WSASocketW(AF_INET6, SOCK_RAW, IPPROTO_IPV6, NULL, 0, WSA_FLAG_NO_HANDLE_INHERIT);
+	if (s == INVALID_SOCKET)
+		return s;
+
+	if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char *)&zero, sizeof(zero)) ||
+	    bind(s, (struct sockaddr *)&ll, sizeof(ll)) ||
+	    WSAIoctl(s, SIO_RCVALL, &mode, sizeof(mode), NULL, 0, &ret, NULL, NULL)) {
+		closesocket(s);
+		return INVALID_SOCKET;
+	}
+
+	return s;
+}
+
+static void rs_helper_arm(void)
+{
+	ULARGE_INTEGER t;
+	FILETIME due;
+
+	t.QuadPart = (ULONGLONG)(-(LONGLONG)RS_HELPER_RETRY_MSEC * 10000);
+	due.dwLowDateTime = t.LowPart;
+	due.dwHighDateTime = t.HighPart;
+	SetThreadpoolTimer(rs_helper_timer, &due, 0, 0);
+}
+
+static void CALLBACK rs_helper_retry(PTP_CALLBACK_INSTANCE instance, PVOID ctx, PTP_TIMER timer)
+{
+	bool pending = false;
+	int i;
+
+	AcquireSRWLockExclusive(&rs_helper_lock);
+	for (i = 0; i < RS_HELPER_MAX; i++) {
+		SOCKET s;
+
+		if (!rs_helper[i].used || rs_helper[i].s)
+			continue;
+
+		s = rs_helper_open(rs_helper[i].ifindex);
+		if (s != INVALID_SOCKET)
+			rs_helper[i].s = s;
+		else if (--rs_helper[i].tries > 0)
+			pending = true;
+		else
+			rs_helper[i].used = false;
+	}
+	if (pending)
+		rs_helper_arm();
+	ReleaseSRWLockExclusive(&rs_helper_lock);
+}
+
+static void rs_helper_del(int fd, unsigned int ifindex)
+{
+	int i;
+
+	AcquireSRWLockExclusive(&rs_helper_lock);
+	for (i = 0; i < RS_HELPER_MAX; i++) {
+		if (!rs_helper[i].used || rs_helper[i].fd != fd ||
+		    (ifindex && rs_helper[i].ifindex != ifindex))
+			continue;
+
+		if (rs_helper[i].s)
+			closesocket(rs_helper[i].s);
+		rs_helper[i].used = false;
+		rs_helper[i].s = 0;
+	}
+	ReleaseSRWLockExclusive(&rs_helper_lock);
+}
+
+static void rs_helper_add(int fd, unsigned int ifindex)
+{
+	SOCKET s;
+	int i;
+
+	rs_helper_del(fd, ifindex);
+
+	s = rs_helper_open(ifindex);
+
+	AcquireSRWLockExclusive(&rs_helper_lock);
+	for (i = 0; i < RS_HELPER_MAX && rs_helper[i].used; i++)
+		;
+	if (i < RS_HELPER_MAX) {
+		rs_helper[i].used = true;
+		rs_helper[i].fd = fd;
+		rs_helper[i].ifindex = ifindex;
+		rs_helper[i].s = s != INVALID_SOCKET ? s : 0;
+		rs_helper[i].tries = RS_HELPER_TRIES;
+		s = INVALID_SOCKET;
+
+		if (!rs_helper[i].s) {
+			if (!rs_helper_timer)
+				rs_helper_timer = CreateThreadpoolTimer(rs_helper_retry, NULL, NULL);
+			if (rs_helper_timer)
+				rs_helper_arm();
+		}
+	}
+	ReleaseSRWLockExclusive(&rs_helper_lock);
+
+	if (s != INVALID_SOCKET)
+		closesocket(s);
+}
+
+static void rs_helper_update(int fd, int opt, const void *val, socklen_t len)
+{
+	static const struct in6_addr allrouters = { { { 0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+							 0, 0, 0, 0x02 } } };
+	const struct ipv6_mreq *mreq = val;
+
+	if (!fd_icmp6[fd] || len < (socklen_t)sizeof(*mreq) ||
+	    memcmp(&mreq->ipv6mr_multiaddr, &allrouters, sizeof(allrouters)) ||
+	    !mreq->ipv6mr_interface)
+		return;
+
+	if (opt == IPV6_ADD_MEMBERSHIP)
+		rs_helper_add(fd, mreq->ipv6mr_interface);
+	else
+		rs_helper_del(fd, mreq->ipv6mr_interface);
+}
+
 int frr_win_setsockopt(int fd, int level, int opt, const void *val,
 		       socklen_t len)
 {
@@ -403,12 +623,32 @@ int frr_win_setsockopt(int fd, int level, int opt, const void *val,
 	if (level == IPPROTO_IPV6 && opt == IPV6_TCLASS)
 		return 0;
 #endif
-	if (!setsockopt(s, level, opt, val, len))
+	if (level == IPPROTO_ICMPV6 && opt == ICMP6_FILTER) {
+		if (len != sizeof(struct icmp6_filter)) {
+			errno = EINVAL;
+			return -1;
+		}
+		if (!fd_icmp6_filter[fd])
+			fd_icmp6_filter[fd] = malloc(sizeof(struct icmp6_filter));
+		if (!fd_icmp6_filter[fd]) {
+			errno = ENOMEM;
+			return -1;
+		}
+		memcpy(fd_icmp6_filter[fd], val, sizeof(struct icmp6_filter));
 		return 0;
+	}
+	if (!setsockopt(s, level, opt, val, len)) {
+		if (level == IPPROTO_IPV6 &&
+		    (opt == IPV6_ADD_MEMBERSHIP || opt == IPV6_DROP_MEMBERSHIP))
+			rs_helper_update(fd, opt, val, len);
+		return 0;
+	}
 	if (WSAGetLastError() == WSAEINVAL &&
 	    ((level == IPPROTO_IP && (opt == IP_ADD_MEMBERSHIP || opt == MCAST_JOIN_GROUP)) ||
 	     (level == IPPROTO_IPV6 &&
 	      (opt == IPV6_ADD_MEMBERSHIP || opt == MCAST_JOIN_GROUP)))) {
+		if (level == IPPROTO_IPV6 && opt == IPV6_ADD_MEMBERSHIP)
+			rs_helper_update(fd, opt, val, len);
 		errno = EADDRINUSE;
 		return -1;
 	}
@@ -878,8 +1118,7 @@ int frr_win_close(int fd)
 	SOCKET s = frr_win_fd2sock(fd);
 
 	if (s != INVALID_SOCKET) {
-		fd_sock[fd] = 0;
-		fd_nonblock[fd] = false;
+		fd_release(fd);
 		closesocket(s);
 	}
 	return _close(fd);
@@ -890,8 +1129,7 @@ SOCKET frr_win_fd_detach(int fd)
 	SOCKET s = frr_win_fd2sock(fd);
 
 	if (s != INVALID_SOCKET) {
-		fd_sock[fd] = 0;
-		fd_nonblock[fd] = false;
+		fd_release(fd);
 		_close(fd);
 	}
 	return s;
@@ -1550,6 +1788,27 @@ static bool stdin_readable(void)
 	return true;
 }
 
+static bool icmp6_filter_pass(const struct icmp6_filter *filter, SOCKET s)
+{
+	WSAPOLLFD pfd = { .fd = s, .events = POLLRDNORM };
+	uint8_t type;
+	int rc;
+
+	for (;;) {
+		rc = recv(s, (char *)&type, sizeof(type), MSG_PEEK);
+		if (rc == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK)
+			return false;
+		if (rc != 1 && !(rc == SOCKET_ERROR && WSAGetLastError() == WSAEMSGSIZE))
+			return true;
+		if (!(filter->icmp6_filt[type >> 5] & (1U << (type & 31))))
+			return true;
+
+		recv(s, (char *)&type, sizeof(type), 0);
+		if (WSAPoll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLRDNORM))
+			return false;
+	}
+}
+
 int frr_win_poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
 	WSAPOLLFD stack[POLL_STACK], *wfds;
@@ -1659,6 +1918,12 @@ int frr_win_poll(struct pollfd *fds, nfds_t nfds, int timeout)
 				;
 			got_sig = true;
 			continue;
+		}
+		if ((wfds[i].revents & POLLRDNORM) && fd_icmp6_filter[fds[idx[i]].fd] &&
+		    !icmp6_filter_pass(fd_icmp6_filter[fds[idx[i]].fd], wfds[i].fd)) {
+			wfds[i].revents &= ~(POLLRDNORM | POLLRDBAND);
+			if (!wfds[i].revents)
+				continue;
 		}
 		fds[idx[i]].revents = wfds[i].revents;
 		count++;
