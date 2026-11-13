@@ -210,8 +210,10 @@ function(frr_yang_embed outvar)
 endfunction()
 
 # Windows compatibility layer
-add_library(frr_win32 OBJECT lib/win32/compat.c lib/win32/pthread.c)
+add_library(frr_win32 OBJECT lib/win32/compat.c lib/win32/pthread.c lib/win32/backtrace.c)
 frr_target_setup(frr_win32)
+set_source_files_properties(lib/win32/backtrace.c PROPERTIES
+	COMPILE_DEFINITIONS "FRR_WIN_CRASHDIR=\"${FRR_STATEDIR}/crash\"")
 set_source_files_properties(lib/win32/compat.c PROPERTIES
 	COMPILE_DEFINITIONS FRR_WIN32_COMPAT_IMPL)
 
@@ -1103,12 +1105,17 @@ if(FRR_RUNTIME_DLLS)
 endif()
 
 install(TARGETS ${FRR_VTYSH_DAEMONS} RUNTIME DESTINATION sbin)
+# the program databases, for the names in backtraces and for debuggers
+foreach(_daemon ${FRR_VTYSH_DAEMONS})
+	install(FILES "$<TARGET_PDB_FILE:${_daemon}>" DESTINATION sbin OPTIONAL)
+endforeach()
 
 file(TO_NATIVE_PATH "${FRR_STATEDIR}/etc" FRR_SYSCONFDIR_NATIVE)
 file(TO_NATIVE_PATH "${FRR_STATEDIR}/run" FRR_RUNSTATEDIR_NATIVE)
 configure_file(tools/watchfrr.cmd.in "${FRR_BLD}/watchfrr.cmd" @ONLY NEWLINE_STYLE CRLF)
 install(PROGRAMS "${FRR_BLD}/watchfrr.cmd" DESTINATION sbin)
 install(TARGETS vtysh RUNTIME DESTINATION bin)
+install(FILES "$<TARGET_PDB_FILE:vtysh>" DESTINATION bin OPTIONAL)
 
 install(CODE "
 	file(GLOB _frr_dlls \"${FRR_BLD}/*.dll\")

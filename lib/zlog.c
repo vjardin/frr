@@ -1097,7 +1097,9 @@ bool zlog_get_immediate_mode(void)
 
 /* common init */
 
+#ifndef TMPBASEDIR
 #define TMPBASEDIR "/var/tmp/frr"
+#endif
 
 static char zlog_tmpdir[MAXPATHLEN];
 
@@ -1129,14 +1131,6 @@ void zlog_init(const char *progname, const char *protoname,
 		zlog_prefixsz = snprintfrr(zlog_prefix, sizeof(zlog_prefix),
 					   "%s: ", protoname);
 	}
-
-#ifdef _WIN32
-	/* no openat(): per-thread log buffers/crashlog files are not
-	 * available, log messages are written out directly instead
-	 */
-	hook_call(zlog_init, progname, protoname, instance, uid, gid);
-	return;
-#endif
 
 	if (mkdir(TMPBASEDIR, 0700) != 0) {
 		if (errno != EEXIST) {
