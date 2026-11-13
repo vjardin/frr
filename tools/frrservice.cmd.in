@@ -73,6 +73,11 @@ if not exist "%B_PATH%watchfrr.exe" (
 if not exist "%V_PATH%" mkdir "%V_PATH%"
 if not exist "%C_PATH%" mkdir "%C_PATH%"
 if not exist "@FRR_CRASHDIR_NATIVE@" mkdir "@FRR_CRASHDIR_NATIVE@"
+for %%f in (daemons frr.conf vtysh.conf) do (
+	if not exist "!C_PATH!\%%f" if exist "!B_PATH!..\share\frr\%%f" (
+		copy /y "!B_PATH!..\share\frr\%%f" "!C_PATH!\%%f" >NUL
+	)
+)
 set "list="
 for %%d in (%DAEMONS%) do (
 	call :is_enabled %%d && if exist "%B_PATH%%%d.exe" set "list=!list! %%d"
