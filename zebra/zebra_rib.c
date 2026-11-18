@@ -5644,13 +5644,13 @@ static void rib_process_dplane_results(struct event *event)
 				break;
 
 			case DPLANE_OP_ADDR_INSTALL:
+			case DPLANE_OP_ADDR_UNINSTALL:
 #ifdef __APPLE__
-				zebra_if_addr_install_result(ctx);
+				zebra_if_addr_result(ctx);
 #endif
 				break;
 
 			/* Some op codes not handled here */
-			case DPLANE_OP_ADDR_UNINSTALL:
 			case DPLANE_OP_VTEP_ADD:
 			case DPLANE_OP_VTEP_DELETE:
 			case DPLANE_OP_BR_PORT_UPDATE:
