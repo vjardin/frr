@@ -64,8 +64,10 @@ static const char *execname = NULL;
 void frrmod_init(struct frrmod_runtime *modinfo)
 {
 	modinfo->finished_loading = true;
-	*frrmod_last = modinfo;
-	frrmod_last = &modinfo->next;
+	if (modinfo != &frrmod_default.r) {
+		*frrmod_last = modinfo;
+		frrmod_last = &modinfo->next;
+	}
 
 	execname = modinfo->info->name;
 }
