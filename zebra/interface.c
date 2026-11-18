@@ -1394,9 +1394,10 @@ static void zebra_if_addr_update_ctx(struct zebra_dplane_ctx *ctx,
 }
 
 #ifdef __APPLE__
-void zebra_if_addr_install_result(struct zebra_dplane_ctx *ctx)
+void zebra_if_addr_result(struct zebra_dplane_ctx *ctx)
 {
 	const struct prefix *addr = dplane_ctx_get_intf_addr(ctx);
+	struct connected *ifc;
 	struct interface *ifp;
 
 	if (dplane_ctx_get_status(ctx) != ZEBRA_DPLANE_REQUEST_SUCCESS)
@@ -1407,12 +1408,31 @@ void zebra_if_addr_install_result(struct zebra_dplane_ctx *ctx)
 	if (!ifp || if_is_pointopoint(ifp))
 		return;
 
+	ifc = connected_check(ifp, addr);
+
+	if (dplane_ctx_get_op(ctx) == DPLANE_OP_ADDR_INSTALL) {
+		/* removed since: by an uninstall request, or by a RTM_DELADDR */
+		if (!ifc || !CHECK_FLAG(ifc->conf, ZEBRA_IFC_CONFIGURED) ||
+		    !CHECK_FLAG(ifc->conf, ZEBRA_IFC_QUEUED))
+			return;
+
+		if (addr->family == AF_INET)
+			connected_add_ipv4(ifp, 0, &addr->u.prefix4, addr->prefixlen, NULL, NULL,
+					   METRIC_MAX);
+		else if (addr->family == AF_INET6)
+			connected_add_ipv6(ifp, 0, &addr->u.prefix6, NULL, addr->prefixlen, NULL,
+					   METRIC_MAX);
+		return;
+	}
+
+	/* already gone, or installed again since */
+	if (!ifc || CHECK_FLAG(ifc->conf, ZEBRA_IFC_QUEUED))
+		return;
+
 	if (addr->family == AF_INET)
-		connected_add_ipv4(ifp, 0, &addr->u.prefix4, addr->prefixlen, NULL, NULL,
-				   METRIC_MAX);
+		connected_delete_ipv4(ifp, 0, &addr->u.prefix4, addr->prefixlen, NULL);
 	else if (addr->family == AF_INET6)
-		connected_add_ipv6(ifp, 0, &addr->u.prefix6, NULL, addr->prefixlen, NULL,
-				   METRIC_MAX);
+		connected_delete_ipv6(ifp, &addr->u.prefix6, NULL, addr->prefixlen);
 }
 #endif /* __APPLE__ */
 

@@ -344,7 +344,7 @@ extern const char *zebra_protodown_rc_str(uint32_t protodown_rc, char *pd_buf,
 					  uint32_t pd_buf_len);
 void zebra_if_dplane_result(struct zebra_dplane_ctx *ctx);
 #ifdef __APPLE__
-void zebra_if_addr_install_result(struct zebra_dplane_ctx *ctx);
+void zebra_if_addr_result(struct zebra_dplane_ctx *ctx);
 #endif
 
 #ifdef HAVE_PROC_NET_DEV
