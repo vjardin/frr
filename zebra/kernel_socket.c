@@ -895,7 +895,7 @@ static void ifam_read_mesg(struct ifa_msghdr *ifm, union sockunion *addr,
 int ifam_read(struct ifa_msghdr *ifam)
 {
 	struct interface *ifp = NULL;
-	union sockunion addr, mask, brd, zero = { 0 };
+	union sockunion addr, mask, brd;
 	bool dest_same = false;
 	char ifname[IFNAMSIZ];
 	short ifnlen = 0;
@@ -926,14 +926,12 @@ int ifam_read(struct ifa_msghdr *ifam)
 	/* N.B. The info in ifa_msghdr does not tell us whether the RTA_BRD
 	   field contains a broadcast address or a peer address, so we are
 	   forced to
-	   rely upon the interface type. */
+	   rely upon the interface type: on a broadcast interface it is the
+	   broadcast address, which is not a destination. */
 	if (if_is_pointopoint(ifp))
 		SET_FLAG(flags, ZEBRA_IFA_PEER);
-	else {
-		if ((memcmp(&addr, &brd, sizeof(addr)) == 0)
-		    || (memcmp(&brd, &zero, sizeof(addr)) == 0))
-			dest_same = true;
-	}
+	else
+		dest_same = true;
 
 #if 0
   /* it might seem cute to grab the interface metric here, however
