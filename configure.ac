@@ -1126,6 +1126,15 @@ if test -n "$frr_cv_interp"; then
   AC_DEFINE_UNQUOTED([INTERP], ["$frr_cv_interp"], [.interp value])
 fi
 
+dnl get RFC 3542 IPv6 socket API (IPV6_PKTINFO, IPV6_HOPLIMIT, IPV6_RECV*)
+dnl the default is the obsolete RFC 2292 API
+case "$host_os" in
+  darwin*)
+    frr_abs_srcdir="`cd \"${srcdir}\"; pwd`"
+    CPPFLAGS="-I${frr_abs_srcdir}/include/macos -D__APPLE_USE_RFC_3542 $CPPFLAGS"
+    ;;
+esac
+
 dnl -------------------------
 dnl Check other header files.
 dnl -------------------------
