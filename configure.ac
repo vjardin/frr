@@ -1508,6 +1508,7 @@ if test "$enable_protobuf" != "no"; then
   if test "$PROTOC_C" = "/bin/false" || test "$PROTO3" = "false"; then
     AC_MSG_NOTICE([protoc-c and/or libprotobuf-c not found, protobuf support disabled])
     enable_protobuf="no"
+    PROTO3=false
   fi
 fi
 #
