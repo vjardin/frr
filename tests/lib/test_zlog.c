@@ -52,8 +52,8 @@ static bool test_zlog_recirculate(void)
 	struct event_loop *loop;
 	struct event evt;
 
-	/* 2 otions: first SOCK_SEQPACKET, if not supported (macOS),
-	 * do SOCK_DGRAM.
+	/* SOCK_SEQPACKET first, and SOCK_DGRAM where it is not supported
+	 * (macOS).
 	 */
 	ret = socketpair(AF_UNIX, SOCK_SEQPACKET, PF_UNSPEC, sockpair);
 	if (ret < 0 && (errno == EPROTONOSUPPORT || errno == EPROTOTYPE ||
