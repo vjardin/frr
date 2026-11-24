@@ -101,7 +101,7 @@ extern "C" {
 #error module code needs GCC visibility extensions
 #else
 # define DSO_PUBLIC __attribute__ ((visibility ("default")))
-#ifdef __MACH__
+#ifdef __APPLE__
 #define DSO_SELF DSO_PUBLIC
 #else
 #define DSO_SELF __attribute__((visibility("protected")))
